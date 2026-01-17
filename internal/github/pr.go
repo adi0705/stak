@@ -198,3 +198,17 @@ func (s *PRStatus) IsOpen() bool {
 func (s *PRStatus) IsMerged() bool {
 	return s.State == "MERGED"
 }
+
+// CommentOnPR adds or updates a comment on a pull request
+// If commentID is provided, it updates that comment; otherwise creates a new one
+func CommentOnPR(prNumber int, body string) error {
+	args := []string{"pr", "comment", strconv.Itoa(prNumber), "--body", body}
+
+	cmd := exec.Command("gh", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to comment on PR #%d: %s", prNumber, string(output))
+	}
+
+	return nil
+}

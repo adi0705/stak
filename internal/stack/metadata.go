@@ -158,3 +158,58 @@ func HasStackMetadata(branch string) (bool, error) {
 	}
 	return parent != "", nil
 }
+
+// GenerateStackVisualization creates a markdown visualization of the stack
+func GenerateStackVisualization(currentBranch string) (string, error) {
+	// Get all ancestors
+	ancestors, err := GetAncestors(currentBranch)
+	if err != nil {
+		return "", fmt.Errorf("failed to get ancestors: %w", err)
+	}
+
+	// Get all descendants
+	descendants, err := GetDescendants(currentBranch)
+	if err != nil {
+		return "", fmt.Errorf("failed to get descendants: %w", err)
+	}
+
+	// Build the full stack: ancestors + current + descendants
+	fullStack := append(ancestors, currentBranch)
+	fullStack = append(fullStack, descendants...)
+
+	// Generate markdown
+	var result string
+	result += "## 📚 Stack\n\n"
+
+	for _, branch := range fullStack {
+		metadata, err := ReadBranchMetadata(branch)
+		if err != nil {
+			continue
+		}
+
+		prefix := "- "
+		if branch == currentBranch {
+			prefix = "- **"
+		}
+
+		prInfo := ""
+		if metadata.PRNumber > 0 {
+			prInfo = fmt.Sprintf(" → PR #%d", metadata.PRNumber)
+		}
+
+		parent := metadata.Parent
+		if parent == "" {
+			parent = "base"
+		}
+
+		if branch == currentBranch {
+			result += fmt.Sprintf("%s%s%s** ← 👈 _current_\n", prefix, branch, prInfo)
+		} else {
+			result += fmt.Sprintf("%s%s%s\n", prefix, branch, prInfo)
+		}
+	}
+
+	result += "\n---\n_This stack is managed by [stak](https://github.com/yourusername/stacking)_"
+
+	return result, nil
+}
