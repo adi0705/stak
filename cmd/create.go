@@ -100,7 +100,7 @@ func runCreate(branchName string) error {
 
 	if !hasCommits {
 		ui.Warning("No commits on this branch yet.")
-		ui.Info("Make some commits and then run: stack create --title \"Your PR title\"")
+		ui.Info("Make some commits and then run: stak create --title \"Your PR title\"")
 		return nil
 	}
 

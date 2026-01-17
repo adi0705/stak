@@ -53,7 +53,7 @@ func runSync() error {
 		return fmt.Errorf("failed to check rebase status: %w", err)
 	}
 	if inProgress {
-		return fmt.Errorf("rebase already in progress. Resolve conflicts and run: stack sync --continue")
+		return fmt.Errorf("rebase already in progress. Resolve conflicts and run: stak sync --continue")
 	}
 
 	// Get current branch
@@ -68,7 +68,7 @@ func runSync() error {
 		return fmt.Errorf("failed to check stack metadata: %w", err)
 	}
 	if !hasMetadata {
-		return fmt.Errorf("branch %s is not part of a stack. Use 'stack create' to create a stacked PR", currentBranch)
+		return fmt.Errorf("branch %s is not part of a stack. Use 'stak create' to create a stacked PR", currentBranch)
 	}
 
 	// Fetch from remote
@@ -181,7 +181,7 @@ func handleRebaseConflict(branch string, conflictErr *git.RebaseConflictError) e
 	fmt.Println("\nTo resolve:")
 	fmt.Println("  1. Fix conflicts in the files above")
 	fmt.Println("  2. Stage resolved files: git add <file>")
-	fmt.Println("  3. Continue sync: stack sync --continue")
+	fmt.Println("  3. Continue sync: stak sync --continue")
 	fmt.Println("\nOr abort: git rebase --abort")
 
 	return fmt.Errorf("rebase conflict - resolve and continue")

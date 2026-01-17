@@ -65,10 +65,10 @@ func runInit() error {
 	ui.Success("Repository initialized for stack")
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Create a new branch from your base branch")
-	fmt.Println("  2. Make commits and run: stack create --title \"Your PR title\"")
-	fmt.Println("  3. Use 'stack list' to visualize your stack")
-	fmt.Println("  4. Use 'stack sync' to keep branches in sync")
-	fmt.Println("  5. Use 'stack submit --all' to merge your stack")
+	fmt.Println("  2. Make commits and run: stak create --title \"Your PR title\"")
+	fmt.Println("  3. Use 'stak list' to visualize your stack")
+	fmt.Println("  4. Use 'stak sync' to keep branches in sync")
+	fmt.Println("  5. Use 'stak submit --all' to merge your stack")
 
 	return nil
 }

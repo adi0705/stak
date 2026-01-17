@@ -1,4 +1,4 @@
-# Stack - PR Stacking Tool
+# Stak - PR Stacking Tool
 
 A Go-based CLI tool that enables stacked PR workflows similar to Graphite. Stack manages branch dependencies, automates PR creation/updates, and handles merging in the correct order.
 
@@ -6,7 +6,7 @@ A Go-based CLI tool that enables stacked PR workflows similar to Graphite. Stack
 
 - Create stacked PRs with automatic base branch management
 - Visualize branch dependencies as a tree
-- Sync changes across entire stack with automatic rebasing
+- Sync changes across entire stak with automatic rebasing
 - Submit (merge) PRs in correct order with automatic base updates
 - Modify PRs and propagate changes to children
 - Store metadata in git config (no external dependencies)
@@ -16,15 +16,15 @@ A Go-based CLI tool that enables stacked PR workflows similar to Graphite. Stack
 ### Build from source
 
 ```bash
-go build -o stack
-sudo mv stack /usr/local/bin/
+go build -o stak
+sudo mv stak /usr/local/bin/
 ```
 
 Or use it directly from the project directory:
 
 ```bash
-go build -o stack
-./stack --help
+go build -o stak
+./stak --help
 ```
 
 ## Prerequisites
@@ -37,7 +37,7 @@ go build -o stack
 
 1. Initialize your repository:
 ```bash
-stack init
+stak init
 ```
 
 2. Create your first stacked PR:
@@ -46,7 +46,7 @@ stack init
 git checkout -b feature-a
 # Make commits
 git add . && git commit -m "Add feature A"
-stack create --title "Add feature A"
+stak create --title "Add feature A"
 ```
 
 3. Stack another PR on top:
@@ -54,12 +54,12 @@ stack create --title "Add feature A"
 git checkout -b feature-b
 # Make more commits
 git add . && git commit -m "Add feature B"
-stack create --title "Add feature B"
+stak create --title "Add feature B"
 ```
 
 4. Visualize your stack:
 ```bash
-stack list
+stak list
 # Output:
 # main
 # └─ feature-a (#1)
@@ -68,22 +68,22 @@ stack list
 
 ## Commands
 
-### `stack init`
+### `stak init`
 
 Initialize repository for stack. Verifies git setup and GitHub CLI authentication.
 
 ```bash
-stack init
+stak init
 ```
 
-### `stack create`
+### `stak create`
 
 Create a new branch stacked on top of the current branch and create a PR.
 
 ```bash
-stack create [branch-name]
-stack create --title "My PR title" --body "Description"
-stack create --draft  # Create as draft PR
+stak create [branch-name]
+stak create --title "My PR title" --body "Description"
+stak create --draft  # Create as draft PR
 ```
 
 **Flags:**
@@ -91,22 +91,22 @@ stack create --draft  # Create as draft PR
 - `--body, -b`: PR description
 - `--draft`: Create as draft PR
 
-### `stack list`
+### `stak list`
 
 Display a tree visualization of all stacked branches.
 
 ```bash
-stack list
+stak list
 ```
 
-### `stack sync`
+### `stak sync`
 
 Sync the current branch and its children with remote changes. Rebases current branch onto its parent and recursively syncs all child branches.
 
 ```bash
-stack sync
-stack sync --current-only  # Skip syncing children
-stack sync --continue      # Continue after resolving conflicts
+stak sync
+stak sync --current-only  # Skip syncing children
+stak sync --continue      # Continue after resolving conflicts
 ```
 
 **Flags:**
@@ -114,16 +114,16 @@ stack sync --continue      # Continue after resolving conflicts
 - `--current-only`: Only sync current branch, skip children
 - `--continue`: Continue sync after resolving conflicts
 
-### `stack modify`
+### `stak modify`
 
 Modify the current branch and sync all children.
 
 ```bash
-stack modify                # Push changes and sync children
-stack modify --amend        # Amend last commit
-stack modify --rebase 3     # Interactive rebase last 3 commits
-stack modify --edit --title "New title"  # Update PR details
-stack modify --push-only    # Only push, skip syncing children
+stak modify                # Push changes and sync children
+stak modify --amend        # Amend last commit
+stak modify --rebase 3     # Interactive rebase last 3 commits
+stak modify --edit --title "New title"  # Update PR details
+stak modify --push-only    # Only push, skip syncing children
 ```
 
 **Flags:**
@@ -134,19 +134,19 @@ stack modify --push-only    # Only push, skip syncing children
 - `--body`: New PR body
 - `--push-only`: Only push changes, skip syncing children
 
-### `stack submit`
+### `stak submit`
 
 Submit and merge PRs in the correct order (bottom to top).
 
 ```bash
-stack submit              # Submit current PR
-stack submit --all        # Submit entire stack
-stack submit --method merge  # Use merge instead of squash
-stack submit --skip-checks   # Skip approval/CI checks
+stak submit              # Submit current PR
+stak submit --all        # Submit entire stack
+stak submit --method merge  # Use merge instead of squash
+stak submit --skip-checks   # Skip approval/CI checks
 ```
 
 **Flags:**
-- `--all`: Submit entire stack from current branch
+- `--all`: Submit entire stak from current branch
 - `--method`: Merge method: squash (default), merge, or rebase
 - `--skip-checks`: Skip approval and CI checks
 
@@ -162,18 +162,18 @@ git checkout main
 git checkout -b auth-backend
 # Make changes
 git add . && git commit -m "Add authentication backend"
-stack create --title "Add authentication backend"
+stak create --title "Add authentication backend"
 # PR #1 created: auth-backend → main
 
 # Create second branch stacked on first
 git checkout -b auth-frontend
 # Make changes
 git add . && git commit -m "Add authentication UI"
-stack create --title "Add authentication UI"
+stak create --title "Add authentication UI"
 # PR #2 created: auth-frontend → auth-backend
 
 # Visualize
-stack list
+stak list
 # main
 # └─ auth-backend (#1)
 #    └─ auth-frontend (#2)
@@ -186,7 +186,7 @@ stack list
 git checkout auth-backend
 # Edit files
 git commit --amend --no-edit
-stack modify
+stak modify
 # Pushes auth-backend and rebases auth-frontend
 ```
 
@@ -195,7 +195,7 @@ stack modify
 ```bash
 # After changes in main
 git checkout auth-backend
-stack sync
+stak sync
 # Rebases auth-backend onto main and auth-frontend onto auth-backend
 ```
 
@@ -204,7 +204,7 @@ stack sync
 ```bash
 # When all PRs are approved
 git checkout auth-frontend
-stack submit --all
+stak submit --all
 # Merges PR #1 into main
 # Updates PR #2 base to main
 # Rebases auth-frontend onto main
@@ -258,7 +258,7 @@ If a rebase conflict occurs:
 1. Stack pauses and shows conflicted files
 2. Resolve conflicts manually
 3. Stage resolved files: `git add <file>`
-4. Continue: `stack sync --continue`
+4. Continue: `stak sync --continue`
 
 Or abort: `git rebase --abort`
 
@@ -293,11 +293,11 @@ stacking/
 
 ## Tips
 
-- Use `stack list` frequently to visualize your stack
-- Always sync before making new changes: `stack sync`
+- Use `stak list` frequently to visualize your stack
+- Always sync before making new changes: `stak sync`
 - Use `--draft` flag when creating WIP PRs
-- Use `stack modify --amend` for quick fixes
-- Test your changes before submitting: `stack submit` (without `--all`)
+- Use `stak modify --amend` for quick fixes
+- Test your changes before submitting: `stak submit` (without `--all`)
 
 ## Troubleshooting
 
@@ -308,10 +308,10 @@ Run `git init` to initialize a git repository.
 Run `gh auth login` to authenticate.
 
 ### "branch has no associated PR"
-The branch was not created with `stack create`. You can manually add metadata with git config.
+The branch was not created with `stak create`. You can manually add metadata with git config.
 
 ### Rebase conflicts
-Resolve conflicts manually, then run `stack sync --continue`.
+Resolve conflicts manually, then run `stak sync --continue`.
 
 ## License
 

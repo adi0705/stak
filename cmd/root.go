@@ -8,9 +8,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "stack",
+	Use:   "stak",
 	Short: "A tool for managing stacked pull requests",
-	Long: `stack is a CLI tool that enables stacked PR workflows.
+	Long: `stak is a CLI tool that enables stacked PR workflows.
 It helps you create, sync, and manage dependent branches and their pull requests.`,
 }
 
