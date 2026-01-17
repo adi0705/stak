@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
@@ -60,8 +62,19 @@ func runSubmit() error {
 		return fmt.Errorf("failed to check stack metadata: %w", err)
 	}
 
-	// If no metadata, this is a new branch - create the PR first
+	// If no metadata, branch was not created with stak create
 	if !hasMetadata {
+		return fmt.Errorf("branch %s is not part of a stack. Use 'stak create' to create stacked branches", currentBranch)
+	}
+
+	// Check if PR already exists
+	metadata, err := stack.ReadBranchMetadata(currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to read metadata for %s: %w", currentBranch, err)
+	}
+
+	// If no PR yet, create it
+	if metadata.PRNumber == 0 {
 		return createPRForBranch(currentBranch)
 	}
 
@@ -121,18 +134,30 @@ func createPRForBranch(branchName string) error {
 		return fmt.Errorf("no commits on branch %s. Make some commits first", branchName)
 	}
 
+	// Prompt for PR title
+	fmt.Print("Enter PR title: ")
+	reader := bufio.NewReader(os.Stdin)
+	prTitle, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read PR title: %w", err)
+	}
+	prTitle = strings.TrimSpace(prTitle)
+
+	if prTitle == "" {
+		return fmt.Errorf("PR title cannot be empty")
+	}
+
 	// Push branch to remote
 	ui.Info(fmt.Sprintf("Pushing branch %s to origin", branchName))
 	if err := git.Push(branchName, true, false); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 
-	// Create PR with auto-filled title and body from commits
+	// Create PR with the provided title and auto-filled body from commits
 	ui.Info(fmt.Sprintf("Creating PR: %s → %s", branchName, parentBranch))
-	ui.Info("PR title and description will be generated from your commits...")
 
-	// Use empty title and body - CreatePR will use --fill-first
-	prNumber, err := github.CreatePR(parentBranch, branchName, "", "", false)
+	// Pass title but empty body - body will be auto-filled from commits
+	prNumber, err := github.CreatePR(parentBranch, branchName, prTitle, "", false)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
