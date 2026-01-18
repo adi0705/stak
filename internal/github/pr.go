@@ -21,8 +21,12 @@ type PRStatus struct {
 func CreatePR(base, head, title, body string, draft bool) (int, error) {
 	args := []string{"pr", "create", "--base", base, "--head", head, "--title", title}
 
+	// If body is empty, use --fill-first to auto-generate from first commit
+	// Otherwise gh pr create fails in non-interactive mode
 	if body != "" {
 		args = append(args, "--body", body)
+	} else {
+		args = append(args, "--fill-first")
 	}
 
 	if draft {

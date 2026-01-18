@@ -59,8 +59,10 @@ func runSubmit() error {
 	if err != nil {
 		return fmt.Errorf("failed to check stack metadata: %w", err)
 	}
+
+	// If no metadata, this is a new branch - create the PR first
 	if !hasMetadata {
-		return fmt.Errorf("branch %s is not part of a stack", currentBranch)
+		return createPRForBranch(currentBranch)
 	}
 
 	// Build ancestor chain
@@ -94,6 +96,61 @@ func runSubmit() error {
 	}
 
 	ui.Success("All PRs submitted successfully")
+	return nil
+}
+
+func createPRForBranch(branchName string) error {
+	// Read metadata to get parent branch
+	metadata, err := stack.ReadBranchMetadata(branchName)
+	if err != nil {
+		return fmt.Errorf("failed to read metadata for %s: %w", branchName, err)
+	}
+
+	parentBranch := metadata.Parent
+	if parentBranch == "" {
+		return fmt.Errorf("no parent branch found in metadata for %s", branchName)
+	}
+
+	// Check if there are any commits on this branch
+	hasCommits, err := git.HasCommits()
+	if err != nil {
+		return fmt.Errorf("failed to check for commits: %w", err)
+	}
+
+	if !hasCommits {
+		return fmt.Errorf("no commits on branch %s. Make some commits first", branchName)
+	}
+
+	// Push branch to remote
+	ui.Info(fmt.Sprintf("Pushing branch %s to origin", branchName))
+	if err := git.Push(branchName, true, false); err != nil {
+		return fmt.Errorf("failed to push branch: %w", err)
+	}
+
+	// Create PR with auto-filled title and body from commits
+	ui.Info(fmt.Sprintf("Creating PR: %s → %s", branchName, parentBranch))
+	ui.Info("PR title and description will be generated from your commits...")
+
+	// Use empty title and body - CreatePR will use --fill-first
+	prNumber, err := github.CreatePR(parentBranch, branchName, "", "", false)
+	if err != nil {
+		return fmt.Errorf("failed to create PR: %w", err)
+	}
+
+	// Update metadata with PR number
+	if err := stack.WriteBranchMetadata(branchName, parentBranch, prNumber); err != nil {
+		return fmt.Errorf("failed to update metadata: %w", err)
+	}
+
+	// Get PR URL
+	prURL, err := github.GetPRURL(prNumber)
+	if err != nil {
+		// Don't fail, just show PR number
+		ui.Success(fmt.Sprintf("Created PR #%d", prNumber))
+	} else {
+		ui.Success(fmt.Sprintf("Created PR #%d: %s", prNumber, prURL))
+	}
+
 	return nil
 }
 

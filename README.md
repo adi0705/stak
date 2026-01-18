@@ -316,3 +316,6 @@ Resolve conflicts manually, then run `stak sync --continue`.
 ## License
 
 MIT
+
+## Credits
+Claude Code Update
