@@ -57,19 +57,10 @@ func runSync() error {
 		return fmt.Errorf("rebase already in progress. Resolve conflicts and run: stak sync --continue")
 	}
 
-	// Get current branch
+	// Get current branch to return to it later
 	currentBranch, err := git.GetCurrentBranch()
 	if err != nil {
 		return fmt.Errorf("failed to get current branch: %w", err)
-	}
-
-	// Check if branch has stack metadata
-	hasMetadata, err := stack.HasStackMetadata(currentBranch)
-	if err != nil {
-		return fmt.Errorf("failed to check stack metadata: %w", err)
-	}
-	if !hasMetadata {
-		return fmt.Errorf("branch %s is not part of a stack. Use 'stak create' to create a stacked PR", currentBranch)
 	}
 
 	// Fetch from remote
@@ -78,37 +69,120 @@ func runSync() error {
 		return fmt.Errorf("failed to fetch: %w", err)
 	}
 
-	// Check if current branch's PR is merged and clean up if needed
-	merged, err := checkAndCleanupMergedBranch(currentBranch)
+	// Get ALL branches with stack metadata
+	allStackBranches, err := stack.GetAllStackBranches()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get stack branches: %w", err)
 	}
-	if merged {
-		// Branch was deleted, we're done
-		ui.Success("Sync completed successfully")
+
+	if len(allStackBranches) == 0 {
+		ui.Warning("No stack branches found")
 		return nil
 	}
 
-	// Sync current branch
-	if err := syncBranch(currentBranch); err != nil {
-		return err
-	}
+	ui.Info(fmt.Sprintf("Syncing %d stack branch(es)", len(allStackBranches)))
 
-	// Sync children if recursive and not current-only
-	if !syncCurrentOnly && syncRecursive {
-		children, err := stack.GetChildren(currentBranch)
-		if err != nil {
-			return fmt.Errorf("failed to get children: %w", err)
+	// Find all unique base branches and update them first
+	baseBranches := make(map[string]bool)
+	for _, branch := range allStackBranches {
+		parent, err := stack.GetParent(branch)
+		if err != nil || parent == "" {
+			continue
 		}
-
-		if len(children) > 0 {
-			ui.Info(fmt.Sprintf("Syncing %d child branch(es)", len(children)))
-			for _, child := range children {
-				if err := syncBranchRecursive(child); err != nil {
-					return err
-				}
+		// Check if parent is also in stack
+		parentInStack := false
+		for _, b := range allStackBranches {
+			if b == parent {
+				parentInStack = true
+				break
 			}
 		}
+		// If parent is not in stack, it's a base branch (like main)
+		if !parentInStack {
+			baseBranches[parent] = true
+		}
+	}
+
+	// Update all base branches (main, etc.) from remote
+	for baseBranch := range baseBranches {
+		ui.Info(fmt.Sprintf("Updating base branch %s from remote", baseBranch))
+		if err := updateLocalBranchFromRemote(baseBranch); err != nil {
+			ui.Warning(fmt.Sprintf("Could not update %s from remote: %v", baseBranch, err))
+		}
+	}
+
+	// Clean up all merged branches first
+	ui.Info("Checking for merged branches")
+	for _, branch := range allStackBranches {
+		exists, err := git.BranchExists(branch)
+		if err != nil || !exists {
+			continue
+		}
+		checkAndCleanupMergedBranch(branch)
+	}
+
+	// Get updated list after cleanup
+	allStackBranches, err = stack.GetAllStackBranches()
+	if err != nil {
+		return fmt.Errorf("failed to get stack branches: %w", err)
+	}
+
+	// Sync branches in dependency order (parents before children)
+	syncedBranches := make(map[string]bool)
+	maxIterations := len(allStackBranches) + 1
+	iteration := 0
+
+	for len(syncedBranches) < len(allStackBranches) && iteration < maxIterations {
+		iteration++
+		progressMade := false
+
+		for _, branch := range allStackBranches {
+			if syncedBranches[branch] {
+				continue
+			}
+
+			// Check if branch still exists
+			exists, err := git.BranchExists(branch)
+			if err != nil || !exists {
+				syncedBranches[branch] = true
+				continue
+			}
+
+			// Get parent
+			parent, err := stack.GetParent(branch)
+			if err != nil {
+				ui.Warning(fmt.Sprintf("Could not get parent for %s: %v", branch, err))
+				syncedBranches[branch] = true
+				continue
+			}
+
+			// Check if parent is in stack
+			parentInStack := false
+			for _, b := range allStackBranches {
+				if b == parent {
+					parentInStack = true
+					break
+				}
+			}
+
+			// Can sync if: no parent, parent not in stack, or parent already synced
+			if parent == "" || !parentInStack || syncedBranches[parent] {
+				if err := syncBranch(branch); err != nil {
+					ui.Warning(fmt.Sprintf("Failed to sync %s: %v", branch, err))
+				}
+				syncedBranches[branch] = true
+				progressMade = true
+			}
+		}
+
+		if !progressMade {
+			break
+		}
+	}
+
+	// Return to original branch
+	if err := git.CheckoutBranch(currentBranch); err != nil {
+		ui.Warning(fmt.Sprintf("Could not return to %s: %v", currentBranch, err))
 	}
 
 	ui.Success("Sync completed successfully")
@@ -252,6 +326,51 @@ func continueSyncAfterConflict() error {
 	}
 
 	ui.Success("Sync completed successfully")
+	return nil
+}
+
+// updateLocalBranchFromRemote updates a local branch to match its remote counterpart
+func updateLocalBranchFromRemote(branch string) error {
+	// Check if branch exists locally
+	localExists, err := git.BranchExists(branch)
+	if err != nil {
+		return fmt.Errorf("failed to check if branch exists: %w", err)
+	}
+	if !localExists {
+		return nil
+	}
+
+	// Check if remote branch exists
+	remoteExists, err := git.RemoteBranchExists(branch)
+	if err != nil {
+		return fmt.Errorf("failed to check if remote branch exists: %w", err)
+	}
+	if !remoteExists {
+		return nil
+	}
+
+	// Save current branch
+	currentBranch, err := git.GetCurrentBranch()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	// Checkout the branch to update
+	if err := git.CheckoutBranch(branch); err != nil {
+		return fmt.Errorf("failed to checkout %s: %w", branch, err)
+	}
+
+	// Reset to match remote
+	if err := git.ResetToRemote(branch); err != nil {
+		git.CheckoutBranch(currentBranch)
+		return fmt.Errorf("failed to reset %s to origin/%s: %w", branch, branch, err)
+	}
+
+	// Return to original branch
+	if err := git.CheckoutBranch(currentBranch); err != nil {
+		return fmt.Errorf("failed to return to %s: %w", currentBranch, err)
+	}
+
 	return nil
 }
 
