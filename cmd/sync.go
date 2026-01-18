@@ -180,13 +180,66 @@ func runSync() error {
 		}
 	}
 
-	// Return to original branch
-	if err := git.CheckoutBranch(currentBranch); err != nil {
-		ui.Warning(fmt.Sprintf("Could not return to %s: %v", currentBranch, err))
+	// Return to original branch, or move to a sensible alternative if deleted
+	if err := returnToOriginalOrAlternative(currentBranch); err != nil {
+		ui.Warning(fmt.Sprintf("Could not return to branch: %v", err))
 	}
 
 	ui.Success("Sync completed successfully")
 	return nil
+}
+
+func returnToOriginalOrAlternative(originalBranch string) error {
+	// Check if original branch still exists
+	exists, err := git.BranchExists(originalBranch)
+	if err != nil {
+		return fmt.Errorf("failed to check if branch exists: %w", err)
+	}
+
+	// If original branch exists, return to it
+	if exists {
+		ui.Info(fmt.Sprintf("Returning to %s", originalBranch))
+		return git.CheckoutBranch(originalBranch)
+	}
+
+	// Original branch was deleted (likely merged)
+	ui.Info(fmt.Sprintf("Branch %s was deleted, finding alternative", originalBranch))
+
+	// Get all remaining stack branches
+	remainingBranches, err := stack.GetAllStackBranches()
+	if err != nil {
+		return fmt.Errorf("failed to get remaining branches: %w", err)
+	}
+
+	// If there are remaining stack branches, checkout the first one
+	if len(remainingBranches) > 0 {
+		targetBranch := remainingBranches[0]
+		ui.Info(fmt.Sprintf("Moving to %s", targetBranch))
+		return git.CheckoutBranch(targetBranch)
+	}
+
+	// No stack branches left, go to main
+	ui.Info("No stack branches remaining, moving to main")
+	mainExists, err := git.BranchExists("main")
+	if err != nil {
+		return fmt.Errorf("failed to check if main exists: %w", err)
+	}
+
+	if mainExists {
+		return git.CheckoutBranch("main")
+	}
+
+	// Try master as fallback
+	masterExists, err := git.BranchExists("master")
+	if err != nil {
+		return fmt.Errorf("failed to check if master exists: %w", err)
+	}
+
+	if masterExists {
+		return git.CheckoutBranch("master")
+	}
+
+	return fmt.Errorf("no suitable branch found")
 }
 
 func syncBranch(branch string) error {
