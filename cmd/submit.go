@@ -13,17 +13,12 @@ import (
 	"stacking/internal/ui"
 )
 
-var (
-	submitAll        bool
-	submitMergeMethod string
-	submitSkipChecks bool
-)
-
 var submitCmd = &cobra.Command{
 	Use:   "submit",
-	Short: "Submit and merge PRs in the stack",
-	Long: `Submit PRs in the correct order, merging from bottom to top.
-After each merge, updates dependent PRs to point to the new base.`,
+	Short: "Push changes and update PR",
+	Long: `Push the current branch changes to remote and update the PR.
+
+If no PR exists yet, creates one. If a PR already exists, pushes the latest changes and updates the stack visualization.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runSubmit(); err != nil {
 			ui.Error(err.Error())
@@ -33,9 +28,6 @@ After each merge, updates dependent PRs to point to the new base.`,
 }
 
 func init() {
-	submitCmd.Flags().BoolVar(&submitAll, "all", false, "Submit entire stack from current branch")
-	submitCmd.Flags().StringVar(&submitMergeMethod, "method", "squash", "Merge method: squash, merge, or rebase")
-	submitCmd.Flags().BoolVar(&submitSkipChecks, "skip-checks", false, "Skip approval and CI checks")
 	rootCmd.AddCommand(submitCmd)
 }
 
@@ -81,37 +73,45 @@ func runSubmit() error {
 		return createPRForBranch(currentBranch)
 	}
 
-	// Build ancestor chain
-	ancestors, err := stack.GetAncestors(currentBranch)
+	// Check if any parent branches have been merged on GitHub
+	// If so, user needs to sync first
+	if err := checkForMergedAncestors(currentBranch); err != nil {
+		return err
+	}
+
+	// PR exists, ensure single commit before pushing
+	// Count commits on this branch compared to parent
+	commitCount, err := git.CountCommits(metadata.Parent)
 	if err != nil {
-		return fmt.Errorf("failed to get ancestors: %w", err)
+		return fmt.Errorf("failed to count commits: %w", err)
 	}
 
-	// Build list of branches to submit
-	var branchesToSubmit []string
-	if submitAll {
-		// Submit entire chain: ancestors + current
-		branchesToSubmit = append(ancestors, currentBranch)
-	} else {
-		// Submit only current branch
-		branchesToSubmit = []string{currentBranch}
-	}
-
-	ui.Info(fmt.Sprintf("Submitting %d branch(es)", len(branchesToSubmit)))
-
-	// Fetch latest
-	if err := git.Fetch(); err != nil {
-		return fmt.Errorf("failed to fetch: %w", err)
-	}
-
-	// Submit each branch in order
-	for _, branch := range branchesToSubmit {
-		if err := submitBranch(branch); err != nil {
-			return err
+	// If more than one commit, squash them into one
+	if commitCount > 1 {
+		ui.Info(fmt.Sprintf("Found %d commits, squashing into one", commitCount))
+		if err := git.SquashCommits(metadata.Parent); err != nil {
+			return fmt.Errorf("failed to squash commits: %w", err)
 		}
+		ui.Success("Commits squashed into one")
 	}
 
-	ui.Success("All PRs submitted successfully")
+	// Push changes
+	ui.Info(fmt.Sprintf("Pushing %s to origin", currentBranch))
+	if err := git.Push(currentBranch, false, true); err != nil {
+		return fmt.Errorf("failed to push: %w", err)
+	}
+
+	ui.Success(fmt.Sprintf("Pushed %s", currentBranch))
+
+	// Update stack comments on GitHub
+	ui.Info("Updating stack comments on GitHub")
+	if err := updateStackComments(currentBranch); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to update stack comments: %v", err))
+		// Don't fail the whole operation if comments fail
+	}
+
+	ui.Success("Submit completed successfully")
+	ui.Info(fmt.Sprintf("PR #%d has been updated with your changes", metadata.PRNumber))
 	return nil
 }
 
@@ -148,6 +148,21 @@ func createPRForBranch(branchName string) error {
 
 	if prTitle == "" {
 		return fmt.Errorf("PR title cannot be empty")
+	}
+
+	// Ensure single commit before creating PR
+	commitCount, err := git.CountCommits(parentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to count commits: %w", err)
+	}
+
+	// If more than one commit, squash them into one
+	if commitCount > 1 {
+		ui.Info(fmt.Sprintf("Found %d commits, squashing into one", commitCount))
+		if err := git.SquashCommits(parentBranch); err != nil {
+			return fmt.Errorf("failed to squash commits: %w", err)
+		}
+		ui.Success("Commits squashed into one")
 	}
 
 	// Push branch to remote
@@ -188,141 +203,60 @@ func createPRForBranch(branchName string) error {
 	return nil
 }
 
-func submitBranch(branch string) error {
-	ui.Info(fmt.Sprintf("Processing branch %s", branch))
-
-	// Get branch metadata
-	metadata, err := stack.ReadBranchMetadata(branch)
+// checkForMergedAncestors checks if any parent branches have merged PRs
+// and warns the user to sync first
+func checkForMergedAncestors(branch string) error {
+	// Get all ancestors
+	ancestors, err := stack.GetAncestors(branch)
 	if err != nil {
-		return fmt.Errorf("failed to read metadata for %s: %w", branch, err)
-	}
-
-	if metadata.PRNumber == 0 {
-		return fmt.Errorf("branch %s has no associated PR", branch)
-	}
-
-	prNumber := metadata.PRNumber
-
-	// Check PR status
-	ui.Info(fmt.Sprintf("Checking status of PR #%d", prNumber))
-	status, err := github.GetPRStatus(prNumber)
-	if err != nil {
-		return fmt.Errorf("failed to get PR status: %w", err)
-	}
-
-	// Check if already merged
-	if status.IsMerged() {
-		ui.Warning(fmt.Sprintf("PR #%d is already merged", prNumber))
+		// If we can't get ancestors, just continue - don't fail
 		return nil
 	}
 
-	// Check if open
-	if !status.IsOpen() {
-		return fmt.Errorf("PR #%d is not open (state: %s)", prNumber, status.State)
-	}
-
-	// Verify approval and CI unless skipping checks
-	if !submitSkipChecks {
-		if !status.IsApproved() {
-			return fmt.Errorf("PR #%d is not approved", prNumber)
+	// Check each ancestor for merged PR
+	var mergedBranches []string
+	for _, ancestor := range ancestors {
+		// Check if branch still exists locally
+		exists, err := git.BranchExists(ancestor)
+		if err != nil || !exists {
+			continue
 		}
 
-		if !status.IsCIPassing() {
-			return fmt.Errorf("PR #%d has failing CI checks", prNumber)
+		// Get metadata
+		metadata, err := stack.ReadBranchMetadata(ancestor)
+		if err != nil || metadata.PRNumber == 0 {
+			continue
 		}
-	}
 
-	// Merge the PR
-	ui.Info(fmt.Sprintf("Merging PR #%d", prNumber))
-	if err := github.MergePR(prNumber, submitMergeMethod); err != nil {
-		return fmt.Errorf("failed to merge PR #%d: %w", prNumber, err)
-	}
+		// Check PR status on GitHub
+		status, err := github.GetPRStatus(metadata.PRNumber)
+		if err != nil {
+			// If we can't get status, skip this branch
+			continue
+		}
 
-	ui.Success(fmt.Sprintf("Merged PR #%d", prNumber))
-
-	// Get the parent branch (which is now the new base for children)
-	newBase := metadata.Parent
-
-	// Get children of this branch
-	children, err := stack.GetChildren(branch)
-	if err != nil {
-		return fmt.Errorf("failed to get children of %s: %w", branch, err)
-	}
-
-	// Update each child
-	for _, child := range children {
-		if err := updateChildAfterMerge(child, branch, newBase); err != nil {
-			return err
+		// If PR is merged, add to list
+		if status.IsMerged() {
+			mergedBranches = append(mergedBranches, fmt.Sprintf("%s (PR #%d)", ancestor, metadata.PRNumber))
 		}
 	}
 
-	// Delete local branch
-	ui.Info(fmt.Sprintf("Deleting local branch %s", branch))
-	currentBranch, _ := git.GetCurrentBranch()
-	if currentBranch == branch {
-		// Switch to parent branch first
-		if newBase != "" {
-			if err := git.CheckoutBranch(newBase); err != nil {
-				ui.Warning(fmt.Sprintf("Could not checkout %s: %v", newBase, err))
-			}
+	// If any ancestors are merged, warn user
+	if len(mergedBranches) > 0 {
+		ui.Warning("⚠️  Stack is out of sync!")
+		fmt.Println("\nThe following parent branches have been merged on GitHub:")
+		for _, branch := range mergedBranches {
+			fmt.Printf("  • %s\n", branch)
 		}
-	}
-
-	if err := git.DeleteBranch(branch, false); err != nil {
-		ui.Warning(fmt.Sprintf("Could not delete branch %s: %v", branch, err))
-	}
-
-	// Delete metadata
-	if err := stack.DeleteBranchMetadata(branch); err != nil {
-		ui.Warning(fmt.Sprintf("Could not delete metadata for %s: %v", branch, err))
+		fmt.Println("\nYou need to sync first to update your stack:")
+		fmt.Println("  stak sync")
+		fmt.Println("\nThis will:")
+		fmt.Println("  • Delete merged branches locally")
+		fmt.Println("  • Update your branch to point to the new parent")
+		fmt.Println("  • Rebase your changes onto the latest code")
+		return fmt.Errorf("stack out of sync - run 'stak sync' first")
 	}
 
 	return nil
 }
 
-func updateChildAfterMerge(child, oldParent, newParent string) error {
-	ui.Info(fmt.Sprintf("Updating child branch %s (parent: %s → %s)", child, oldParent, newParent))
-
-	// Get child metadata
-	childMetadata, err := stack.ReadBranchMetadata(child)
-	if err != nil {
-		return fmt.Errorf("failed to read metadata for %s: %w", child, err)
-	}
-
-	// Checkout child branch
-	if err := git.CheckoutBranch(child); err != nil {
-		return fmt.Errorf("failed to checkout %s: %w", child, err)
-	}
-
-	// Rebase onto new parent
-	ui.Info(fmt.Sprintf("Rebasing %s onto origin/%s", child, newParent))
-	onto := fmt.Sprintf("origin/%s", newParent)
-	if err := git.RebaseOnto(onto); err != nil {
-		if conflictErr, ok := err.(*git.RebaseConflictError); ok {
-			return handleRebaseConflict(child, conflictErr)
-		}
-		return fmt.Errorf("failed to rebase %s: %w", child, err)
-	}
-
-	// Force push
-	ui.Info(fmt.Sprintf("Force pushing %s", child))
-	if err := git.Push(child, false, true); err != nil {
-		return fmt.Errorf("failed to push %s: %w", child, err)
-	}
-
-	// Update PR base on GitHub
-	if childMetadata.PRNumber > 0 {
-		ui.Info(fmt.Sprintf("Updating PR #%d base to %s", childMetadata.PRNumber, newParent))
-		if err := github.UpdatePRBase(childMetadata.PRNumber, newParent); err != nil {
-			return fmt.Errorf("failed to update PR base: %w", err)
-		}
-	}
-
-	// Update metadata
-	if err := stack.WriteBranchMetadata(child, newParent, childMetadata.PRNumber); err != nil {
-		return fmt.Errorf("failed to update metadata for %s: %w", child, err)
-	}
-
-	ui.Success(fmt.Sprintf("Updated child branch %s", child))
-	return nil
-}

@@ -132,6 +132,67 @@ func GetRemoteURL() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// CountCommits counts the number of commits on current branch compared to base
+func CountCommits(baseBranch string) (int, error) {
+	cmd := exec.Command("git", "rev-list", "--count", "HEAD", fmt.Sprintf("^%s", baseBranch))
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count commits: %w", err)
+	}
+
+	var count int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count); err != nil {
+		return 0, fmt.Errorf("failed to parse commit count: %w", err)
+	}
+	return count, nil
+}
+
+// SquashCommits squashes all commits on current branch into a single commit
+func SquashCommits(baseBranch string) error {
+	// Get the current commit message (we'll keep the first commit's message)
+	cmd := exec.Command("git", "log", "--format=%B", "-n", "1", "HEAD")
+	messageOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get commit message: %w", err)
+	}
+	message := strings.TrimSpace(string(messageOutput))
+
+	// Soft reset to the base branch (keeps all changes staged)
+	resetCmd := exec.Command("git", "reset", "--soft", baseBranch)
+	if output, err := resetCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to reset to %s: %s", baseBranch, string(output))
+	}
+
+	// Commit with the original message
+	commitCmd := exec.Command("git", "commit", "-m", message)
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create squashed commit: %s", string(output))
+	}
+
+	return nil
+}
+
+// RemoteBranchExists checks if a branch exists on remote
+func RemoteBranchExists(branch string) (bool, error) {
+	cmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check remote branch: %w", err)
+	}
+	return len(strings.TrimSpace(string(output))) > 0, nil
+}
+
+// ResetToRemote resets the current branch to match its remote counterpart
+func ResetToRemote(branch string) error {
+	remoteBranch := fmt.Sprintf("origin/%s", branch)
+	cmd := exec.Command("git", "reset", "--hard", remoteBranch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to reset to %s: %s", remoteBranch, string(output))
+	}
+	return nil
+}
+
 // RemoteBranchExists checks if a branch exists on remote
 func RemoteBranchExists(branch string) (bool, error) {
 	cmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)

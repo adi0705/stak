@@ -213,6 +213,12 @@ func CommentOnPR(prNumber int, body string) error {
 	return nil
 }
 
+// PRComment represents a comment on a pull request
+type PRComment struct {
+	ID   string
+	Body string
+}
+
 // GetPRComments retrieves all comments from a pull request
 func GetPRComments(prNumber int) ([]string, error) {
 	cmd := exec.Command("gh", "pr", "view", strconv.Itoa(prNumber), "--json", "comments", "-q", ".comments[].body")
@@ -223,4 +229,64 @@ func GetPRComments(prNumber int) ([]string, error) {
 
 	comments := strings.Split(strings.TrimSpace(string(output)), "\n")
 	return comments, nil
+}
+
+// GetPRCommentsWithIDs retrieves all comments with their IDs from a pull request
+func GetPRCommentsWithIDs(prNumber int) ([]PRComment, error) {
+	// Use a different approach - get JSON and parse it properly
+	cmd := exec.Command("gh", "pr", "view", strconv.Itoa(prNumber), "--json", "comments")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get comments for PR #%d: %w", prNumber, err)
+	}
+
+	// Parse JSON manually to extract id and body
+	// Format: {"comments":[{"id":"IC_xxx","body":"..."}]}
+	var result struct {
+		Comments []struct {
+			ID   string `json:"id"`
+			Body string `json:"body"`
+		} `json:"comments"`
+	}
+
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse comments JSON: %w", err)
+	}
+
+	comments := make([]PRComment, 0, len(result.Comments))
+	for _, c := range result.Comments {
+		comments = append(comments, PRComment{
+			ID:   c.ID,
+			Body: c.Body,
+		})
+	}
+
+	return comments, nil
+}
+
+// UpdateComment updates an existing comment on a pull request using GraphQL
+func UpdateComment(commentID, body string) error {
+	// Escape the body for JSON
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to marshal body: %w", err)
+	}
+
+	// Use GraphQL mutation to update the comment
+	// commentID is a GraphQL node ID (e.g., IC_kwDOQ7y7zM7gXOP7)
+	query := fmt.Sprintf(`mutation {
+		updateIssueComment(input: {id: "%s", body: %s}) {
+			issueComment {
+				id
+			}
+		}
+	}`, commentID, string(bodyJSON))
+
+	cmd := exec.Command("gh", "api", "graphql", "-f", fmt.Sprintf("query=%s", query))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to update comment %s: %s", commentID, string(output))
+	}
+
+	return nil
 }

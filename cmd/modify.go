@@ -4,28 +4,27 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
-	"stacking/internal/github"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
 
 var (
-	modifyAmend      bool
-	modifyRebaseNum  int
-	modifyEditPR     bool
-	modifyTitle      string
-	modifyBody       string
-	modifyPushOnly   bool
+	modifyAmend     bool
+	modifyRebaseNum int
 )
 
 var modifyCmd = &cobra.Command{
 	Use:   "modify",
-	Short: "Modify current branch and sync children",
-	Long: `Modify the current branch by amending commits or rebasing, then push changes
-and sync all child branches. Optionally update the PR details.`,
+	Short: "Modify commits locally",
+	Long: `Modify the current branch by opening an interactive commit amend window (default),
+or by rebasing. Changes are made locally only.
+
+By default, opens the commit editor to amend the last commit. Use flags for other operations.
+After making changes, run 'stak submit' to push changes and update the PR.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runModify(); err != nil {
 			ui.Error(err.Error())
@@ -35,12 +34,8 @@ and sync all child branches. Optionally update the PR details.`,
 }
 
 func init() {
-	modifyCmd.Flags().BoolVar(&modifyAmend, "amend", false, "Amend the last commit")
+	modifyCmd.Flags().BoolVar(&modifyAmend, "amend", false, "Amend the last commit (default if no flags)")
 	modifyCmd.Flags().IntVar(&modifyRebaseNum, "rebase", 0, "Interactive rebase last N commits")
-	modifyCmd.Flags().BoolVar(&modifyEditPR, "edit", false, "Edit PR title/body")
-	modifyCmd.Flags().StringVar(&modifyTitle, "title", "", "New PR title")
-	modifyCmd.Flags().StringVar(&modifyBody, "body", "", "New PR body")
-	modifyCmd.Flags().BoolVar(&modifyPushOnly, "push-only", false, "Only push changes, skip syncing children")
 	rootCmd.AddCommand(modifyCmd)
 }
 
@@ -65,16 +60,48 @@ func runModify() error {
 		return fmt.Errorf("branch %s is not part of a stack", currentBranch)
 	}
 
+	// If no modification flags were provided, open commit amend by default
+	if !modifyAmend && modifyRebaseNum == 0 {
+		modifyAmend = true
+	}
+
 	// Handle amend
 	if modifyAmend {
+		// Get tree hash before amending (tree = all file contents)
+		beforeTreeCmd := exec.Command("git", "log", "-1", "--format=%T")
+		beforeTreeOutput, err := beforeTreeCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get tree hash: %w", err)
+		}
+		beforeTree := strings.TrimSpace(string(beforeTreeOutput))
+
 		ui.Info("Opening editor to amend last commit")
 		cmd := exec.Command("git", "commit", "--amend")
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to amend commit: %w", err)
+		cmdErr := cmd.Run()
+
+		// Get tree hash after
+		afterTreeCmd := exec.Command("git", "log", "-1", "--format=%T")
+		afterTreeOutput, err := afterTreeCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get tree hash: %w", err)
 		}
+		afterTree := strings.TrimSpace(string(afterTreeOutput))
+
+		// If tree unchanged, no actual file changes were made
+		if beforeTree == afterTree {
+			ui.Warning("No file changes made. Aborting.")
+			return nil
+		}
+
+		// If there was an error, report it
+		if cmdErr != nil {
+			return fmt.Errorf("failed to amend commit: %w", cmdErr)
+		}
+
+		ui.Success("Commit amended successfully")
 	}
 
 	// Handle interactive rebase
@@ -85,70 +112,19 @@ func runModify() error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to rebase: %w", err)
-		}
-	}
-
-	// If no modification flags were provided, just push and sync
-	if !modifyAmend && modifyRebaseNum == 0 && !modifyEditPR {
-		ui.Info("No modification flags provided. Pushing current changes and syncing children.")
-	}
-
-	// Force push changes
-	ui.Info(fmt.Sprintf("Force pushing %s", currentBranch))
-	if err := git.Push(currentBranch, false, true); err != nil {
-		return fmt.Errorf("failed to push: %w", err)
-	}
-
-	ui.Success(fmt.Sprintf("Pushed %s", currentBranch))
-
-	// Edit PR if requested
-	if modifyEditPR || modifyTitle != "" || modifyBody != "" {
-		metadata, err := stack.ReadBranchMetadata(currentBranch)
-		if err != nil {
-			return fmt.Errorf("failed to read branch metadata: %w", err)
-		}
-
-		if metadata.PRNumber == 0 {
-			ui.Warning("No PR associated with this branch")
-		} else {
-			ui.Info(fmt.Sprintf("Updating PR #%d", metadata.PRNumber))
-			if err := github.EditPR(metadata.PRNumber, modifyTitle, modifyBody); err != nil {
-				return fmt.Errorf("failed to edit PR: %w", err)
-			}
-			ui.Success(fmt.Sprintf("Updated PR #%d", metadata.PRNumber))
-		}
-	}
-
-	// Sync children unless push-only flag is set
-	if !modifyPushOnly {
-		children, err := stack.GetChildren(currentBranch)
-		if err != nil {
-			return fmt.Errorf("failed to get children: %w", err)
-		}
-
-		if len(children) > 0 {
-			ui.Info(fmt.Sprintf("Syncing %d child branch(es)", len(children)))
-
-			// Fetch first
-			if err := git.Fetch(); err != nil {
-				return fmt.Errorf("failed to fetch: %w", err)
-			}
-
-			// Sync each child recursively
-			for _, child := range children {
-				if err := syncBranchRecursive(child); err != nil {
-					return err
+			// Check if user aborted the rebase
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if exitErr.ExitCode() == 1 {
+					ui.Warning("Rebase canceled. No changes were made.")
+					return nil
 				}
 			}
-
-			// Return to original branch
-			if err := git.CheckoutBranch(currentBranch); err != nil {
-				return fmt.Errorf("failed to return to branch %s: %w", currentBranch, err)
-			}
+			return fmt.Errorf("failed to rebase: %w", err)
 		}
+		ui.Success("Rebase completed successfully")
 	}
 
-	ui.Success("Modify completed successfully")
+	ui.Success("Changes modified locally")
+	ui.Info("Run 'stak submit' to push changes and update the PR")
 	return nil
 }

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+
 	"stacking/internal/github"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
@@ -43,14 +45,47 @@ func updateStackComments(branchName string) error {
 			continue
 		}
 
-		// Post comment
-		if err := github.CommentOnPR(metadata.PRNumber, visualization); err != nil {
-			ui.Warning(fmt.Sprintf("Failed to comment on PR #%d: %v", metadata.PRNumber, err))
+		// Check if a stack comment already exists
+		comments, err := github.GetPRCommentsWithIDs(metadata.PRNumber)
+		if err != nil {
+			ui.Warning(fmt.Sprintf("Failed to get comments for PR #%d: %v", metadata.PRNumber, err))
 			continue
 		}
 
-		ui.Info(fmt.Sprintf("Updated stack comment on PR #%d", metadata.PRNumber))
+		// Look for existing stack comment (contains stak-metadata marker)
+		var existingCommentID string
+		for _, comment := range comments {
+			if containsStackMetadata(comment.Body) {
+				existingCommentID = comment.ID
+				break
+			}
+		}
+
+		// Update existing comment or create new one
+		if existingCommentID != "" {
+			if err := github.UpdateComment(existingCommentID, visualization); err != nil {
+				ui.Warning(fmt.Sprintf("Failed to update comment on PR #%d: %v", metadata.PRNumber, err))
+				continue
+			}
+			ui.Info(fmt.Sprintf("Updated stack comment on PR #%d", metadata.PRNumber))
+		} else {
+			if err := github.CommentOnPR(metadata.PRNumber, visualization); err != nil {
+				ui.Warning(fmt.Sprintf("Failed to create comment on PR #%d: %v", metadata.PRNumber, err))
+				continue
+			}
+			ui.Info(fmt.Sprintf("Created stack comment on PR #%d", metadata.PRNumber))
+		}
 	}
 
 	return nil
+}
+
+// containsStackMetadata checks if a comment body contains stack metadata or is a stack comment
+func containsStackMetadata(body string) bool {
+	// Check for the new format with metadata
+	if strings.Contains(body, "<!-- stak-metadata") {
+		return true
+	}
+	// Check for stack comments (old or new format)
+	return strings.Contains(body, "## 📚 Stack") && strings.Contains(body, "This stack is managed by")
 }

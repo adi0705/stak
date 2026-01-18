@@ -69,11 +69,24 @@ func runSync() error {
 		return fmt.Errorf("failed to fetch: %w", err)
 	}
 
+	// First, check and clean up all merged branches in the stack
+	// This ensures we don't try to rebase onto a merged branch
+	if err := cleanupMergedBranchesInStack(currentBranch); err != nil {
+		return err
 	// Get ALL branches with stack metadata
 	allStackBranches, err := stack.GetAllStackBranches()
 	if err != nil {
 		return fmt.Errorf("failed to get stack branches: %w", err)
 	}
+
+	// Check if current branch was deleted during cleanup
+	exists, err := git.BranchExists(currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to check if branch exists: %w", err)
+	}
+	if !exists {
+		// Current branch was merged and deleted
+		ui.Success("Sync completed successfully")
 
 	if len(allStackBranches) == 0 {
 		ui.Warning("No stack branches found")
@@ -211,6 +224,12 @@ func syncBranch(branch string) error {
 		return nil
 	}
 
+	// Update local parent branch to match remote (if it exists locally and remotely)
+	if err := updateLocalBranchFromRemote(parent); err != nil {
+		// Don't fail if we can't update parent, just warn
+		ui.Warning(fmt.Sprintf("Could not update local %s from remote: %v", parent, err))
+	}
+
 	// Checkout the branch
 	if err := git.CheckoutBranch(branch); err != nil {
 		return fmt.Errorf("failed to checkout branch %s: %w", branch, err)
@@ -237,13 +256,13 @@ func syncBranch(branch string) error {
 }
 
 func syncBranchRecursive(branch string) error {
-	// Check if this branch's PR is merged and clean up if needed
-	merged, err := checkAndCleanupMergedBranch(branch)
+	// Check if branch still exists (might have been cleaned up)
+	exists, err := git.BranchExists(branch)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check if branch exists: %w", err)
 	}
-	if merged {
-		// Branch was deleted, skip syncing it
+	if !exists {
+		// Branch was merged and deleted, skip it
 		return nil
 	}
 
@@ -274,21 +293,52 @@ func handleRebaseConflict(branch string, conflictErr *git.RebaseConflictError) e
 		files = []string{}
 	}
 
-	ui.Error(fmt.Sprintf("Rebase conflict on branch %s", branch))
+	fmt.Println()
+	ui.Error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	ui.Error(fmt.Sprintf("  🔀 Rebase conflict on branch: %s", branch))
+	ui.Error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
 	if len(files) > 0 {
-		fmt.Println("\nConflicted files:")
+		fmt.Println("📝 Conflicted files:")
 		for _, file := range files {
-			fmt.Printf("  - %s\n", file)
+			fmt.Printf("   • %s\n", file)
 		}
+		fmt.Println()
 	}
 
-	fmt.Println("\nTo resolve:")
-	fmt.Println("  1. Fix conflicts in the files above")
-	fmt.Println("  2. Stage resolved files: git add <file>")
-	fmt.Println("  3. Continue sync: stak sync --continue")
-	fmt.Println("\nOr abort: git rebase --abort")
+	fmt.Println("🔧 How to resolve conflicts:")
+	fmt.Println()
+	fmt.Println("   1️⃣  Open the conflicted files in your editor")
+	fmt.Println("      Look for conflict markers:")
+	fmt.Println("      <<<<<<< HEAD")
+	fmt.Println("      your changes")
+	fmt.Println("      =======")
+	fmt.Println("      incoming changes")
+	fmt.Println("      >>>>>>> parent branch")
+	fmt.Println()
+	fmt.Println("   2️⃣  Edit the files to keep the code you want")
+	fmt.Println("      Remove the conflict markers (<<<<<<<, =======, >>>>>>>)")
+	fmt.Println()
+	fmt.Println("   3️⃣  Stage the resolved files:")
+	if len(files) > 0 {
+		for _, file := range files {
+			fmt.Printf("      git add %s\n", file)
+		}
+	} else {
+		fmt.Println("      git add <resolved-file>")
+	}
+	fmt.Println()
+	fmt.Println("   4️⃣  Continue the sync:")
+	fmt.Println("      stak sync --continue")
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Println("⚠️  To abort and undo the rebase:")
+	fmt.Println("   git rebase --abort")
+	fmt.Println()
 
-	return fmt.Errorf("rebase conflict - resolve and continue")
+	return fmt.Errorf("rebase conflict detected")
 }
 
 func continueSyncAfterConflict() error {
@@ -298,6 +348,8 @@ func continueSyncAfterConflict() error {
 		return fmt.Errorf("failed to check rebase status: %w", err)
 	}
 	if !inProgress {
+		ui.Warning("No rebase in progress")
+		fmt.Println("\nTip: Run 'stak sync' to start syncing your branches")
 		return fmt.Errorf("no rebase in progress")
 	}
 
@@ -308,15 +360,33 @@ func continueSyncAfterConflict() error {
 	}
 	if hasConflicts {
 		files, _ := git.GetConflictedFiles()
-		fmt.Println("Still have conflicts in:")
+
+		fmt.Println()
+		ui.Error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		ui.Error("  ⚠️  Conflicts still unresolved")
+		ui.Error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println()
+		fmt.Println("📝 Files still have conflicts:")
 		for _, file := range files {
-			fmt.Printf("  - %s\n", file)
+			fmt.Printf("   • %s\n", file)
 		}
+		fmt.Println()
+		fmt.Println("🔧 You need to:")
+		fmt.Println("   1. Open and edit these files to resolve conflicts")
+		fmt.Println("   2. Remove conflict markers (<<<<<<<, =======, >>>>>>>)")
+		fmt.Println("   3. Stage the resolved files:")
+		for _, file := range files {
+			fmt.Printf("      git add %s\n", file)
+		}
+		fmt.Println("   4. Run: stak sync --continue")
+		fmt.Println()
+
 		return fmt.Errorf("resolve all conflicts before continuing")
 	}
 
-	// Continue rebase
-	ui.Info("Continuing rebase")
+	// All conflicts resolved, continue rebase
+	fmt.Println()
+	ui.Info("✅ All conflicts resolved! Continuing rebase...")
 	if err := git.ContinueRebase(); err != nil {
 		return fmt.Errorf("failed to continue rebase: %w", err)
 	}
@@ -333,7 +403,100 @@ func continueSyncAfterConflict() error {
 		return fmt.Errorf("failed to push: %w", err)
 	}
 
-	ui.Success("Sync completed successfully")
+	fmt.Println()
+	ui.Success("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	ui.Success("  🎉 Sync completed successfully!")
+	ui.Success("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	return nil
+}
+
+// updateLocalBranchFromRemote updates a local branch to match its remote counterpart
+func updateLocalBranchFromRemote(branch string) error {
+	// Check if branch exists locally
+	localExists, err := git.BranchExists(branch)
+	if err != nil {
+		return fmt.Errorf("failed to check if branch exists: %w", err)
+	}
+	if !localExists {
+		// Branch doesn't exist locally, nothing to update
+		return nil
+	}
+
+	// Check if remote branch exists
+	remoteExists, err := git.RemoteBranchExists(branch)
+	if err != nil {
+		return fmt.Errorf("failed to check if remote branch exists: %w", err)
+	}
+	if !remoteExists {
+		// No remote branch, nothing to update
+		return nil
+	}
+
+	// Save current branch
+	currentBranch, err := git.GetCurrentBranch()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	// Checkout the branch to update
+	if err := git.CheckoutBranch(branch); err != nil {
+		return fmt.Errorf("failed to checkout %s: %w", branch, err)
+	}
+
+	// Reset to match remote
+	ui.Info(fmt.Sprintf("Updating local %s to match origin/%s", branch, branch))
+	if err := git.ResetToRemote(branch); err != nil {
+		// Try to go back to original branch
+		git.CheckoutBranch(currentBranch)
+		return fmt.Errorf("failed to reset %s to origin/%s: %w", branch, branch, err)
+	}
+
+	// Return to original branch
+	if err := git.CheckoutBranch(currentBranch); err != nil {
+		return fmt.Errorf("failed to return to %s: %w", currentBranch, err)
+	}
+
+	return nil
+}
+
+// cleanupMergedBranchesInStack checks all branches in the stack and cleans up any that are merged
+func cleanupMergedBranchesInStack(currentBranch string) error {
+	// Get all ancestors
+	ancestors, err := stack.GetAncestors(currentBranch)
+	if err != nil {
+		// If we can't get ancestors, just continue - don't fail
+		ui.Warning(fmt.Sprintf("Could not get ancestors: %v", err))
+		ancestors = []string{}
+	}
+
+	// Get all descendants
+	descendants, err := stack.GetDescendants(currentBranch)
+	if err != nil {
+		ui.Warning(fmt.Sprintf("Could not get descendants: %v", err))
+		descendants = []string{}
+	}
+
+	// Build full list: ancestors (bottom to top) + current + descendants
+	allBranches := append(ancestors, currentBranch)
+	allBranches = append(allBranches, descendants...)
+
+	// Check each branch for merged PR and clean up
+	for _, branch := range allBranches {
+		// Check if branch still exists locally
+		exists, err := git.BranchExists(branch)
+		if err != nil || !exists {
+			continue
+		}
+
+		// Check and clean up if merged
+		_, err = checkAndCleanupMergedBranch(branch)
+		if err != nil {
+			// Don't fail the whole operation, just warn
+			ui.Warning(fmt.Sprintf("Error checking branch %s: %v", branch, err))
+		}
+	}
+
 	return nil
 }
 
