@@ -212,3 +212,15 @@ func CommentOnPR(prNumber int, body string) error {
 
 	return nil
 }
+
+// GetPRComments retrieves all comments from a pull request
+func GetPRComments(prNumber int) ([]string, error) {
+	cmd := exec.Command("gh", "pr", "view", strconv.Itoa(prNumber), "--json", "comments", "-q", ".comments[].body")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get comments for PR #%d: %w", prNumber, err)
+	}
+
+	comments := strings.Split(strings.TrimSpace(string(output)), "\n")
+	return comments, nil
+}

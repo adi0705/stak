@@ -2,6 +2,9 @@ package stack
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
+
 	"stacking/internal/git"
 	"stacking/pkg/models"
 )
@@ -177,9 +180,12 @@ func GenerateStackVisualization(currentBranch string) (string, error) {
 	fullStack := append(ancestors, currentBranch)
 	fullStack = append(fullStack, descendants...)
 
-	// Generate markdown
+	// Generate markdown with machine-readable metadata
 	var result string
 	result += "## 📚 Stack\n\n"
+
+	// Store metadata for hidden section
+	var metadataLines []string
 
 	for _, branch := range fullStack {
 		metadata, err := ReadBranchMetadata(branch)
@@ -197,19 +203,71 @@ func GenerateStackVisualization(currentBranch string) (string, error) {
 			prInfo = fmt.Sprintf(" → PR #%d", metadata.PRNumber)
 		}
 
-		parent := metadata.Parent
-		if parent == "" {
-			parent = "base"
-		}
-
 		if branch == currentBranch {
 			result += fmt.Sprintf("%s%s%s** ← 👈 _current_\n", prefix, branch, prInfo)
 		} else {
 			result += fmt.Sprintf("%s%s%s\n", prefix, branch, prInfo)
 		}
+
+		// Add to machine-readable metadata
+		metadataLines = append(metadataLines, fmt.Sprintf("%s:%s:%d", branch, metadata.Parent, metadata.PRNumber))
 	}
 
-	result += "\n---\n_This stack is managed by [stak](https://github.com/yourusername/stacking)_"
+	result += "\n---\n_This stack is managed by [stak](https://github.com/yourusername/stacking)_\n\n"
+
+	// Add hidden machine-readable metadata
+	result += "<!-- stak-metadata\n"
+	for _, line := range metadataLines {
+		result += line + "\n"
+	}
+	result += "-->"
 
 	return result, nil
+}
+
+// ParseStackMetadata parses machine-readable metadata from a PR comment
+func ParseStackMetadata(comment string) (map[string]*models.Branch, error) {
+	// Find the metadata section
+	startMarker := "<!-- stak-metadata"
+	endMarker := "-->"
+
+	startIdx := strings.Index(comment, startMarker)
+	if startIdx == -1 {
+		return nil, fmt.Errorf("no stack metadata found in comment")
+	}
+
+	startIdx += len(startMarker)
+	endIdx := strings.Index(comment[startIdx:], endMarker)
+	if endIdx == -1 {
+		return nil, fmt.Errorf("malformed stack metadata in comment")
+	}
+
+	metadataSection := comment[startIdx : startIdx+endIdx]
+	lines := strings.Split(strings.TrimSpace(metadataSection), "\n")
+
+	branches := make(map[string]*models.Branch)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse format: branch:parent:prNumber
+		parts := strings.Split(line, ":")
+		if len(parts) != 3 {
+			continue
+		}
+
+		branchName := parts[0]
+		parent := parts[1]
+		prNumber, err := strconv.Atoi(parts[2])
+		if err != nil {
+			continue
+		}
+
+		branches[branchName] = models.NewBranch(branchName, parent, prNumber)
+	}
+
+	return branches, nil
 }

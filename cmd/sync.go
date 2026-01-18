@@ -186,6 +186,14 @@ func runSync() error {
 	}
 
 	ui.Success("Sync completed successfully")
+
+	// Update stack visualization on all PRs
+	ui.Info("Updating stack comments on GitHub")
+	if err := updateStackComments(currentBranch); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to update stack comments: %v", err))
+		// Don't fail the whole operation if comments fail
+	}
+
 	return nil
 }
 
