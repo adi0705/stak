@@ -343,4 +343,4 @@ Resolve conflicts manually, then run `stak sync --continue`.
 MIT
 
 ## Credits
-Claude Code Update
+Claude Code
