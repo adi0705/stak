@@ -101,7 +101,13 @@ stak list
 
 ### `stak sync`
 
-Sync the current branch and its children with remote changes. Rebases current branch onto its parent and recursively syncs all child branches.
+Sync **all branches** with stack metadata with remote changes. Rebases each branch onto its parent in dependency order.
+
+**Syncs Everything:** Unlike traditional tools, `stak sync` always syncs ALL your stacked branches:
+- Fetches latest changes from remote
+- Updates base branches (main, etc.) from remote first
+- Syncs all stack branches in correct dependency order (parents before children)
+- Works across independent stacks
 
 **Automatic Cleanup:** If a branch's PR has been merged on GitHub, `stak sync` will automatically:
 - Delete the local branch
@@ -109,15 +115,17 @@ Sync the current branch and its children with remote changes. Rebases current br
 - Update child branches to point to the new parent
 - Update child PR bases on GitHub
 
+**Smart Branch Selection:** If the current branch is deleted during sync (because its PR was merged):
+- Automatically moves to another stack branch
+- Falls back to main if no stack branches remain
+- Ensures you never end up on a deleted branch
+
 ```bash
 stak sync
-stak sync --current-only  # Skip syncing children
 stak sync --continue      # Continue after resolving conflicts
 ```
 
 **Flags:**
-- `--recursive, -r`: Sync child branches recursively (default: true)
-- `--current-only`: Only sync current branch, skip children
 - `--continue`: Continue sync after resolving conflicts
 
 ### `stak modify`
@@ -199,28 +207,38 @@ stak modify
 ### Syncing with Remote
 
 ```bash
-# After changes in main
-git checkout auth-backend
+# After changes in main, sync from any branch
+git checkout auth-backend  # or any other branch
 stak sync
-# Rebases auth-backend onto main and auth-frontend onto auth-backend
+# Updates main from remote
+# Rebases auth-backend onto main
+# Rebases auth-frontend onto auth-backend
+# Syncs ALL branches with stack metadata
 ```
 
 ### Automatic Cleanup After Merge
 
 ```bash
 # After manually merging PR #1 on GitHub (auth-backend → main)
-git checkout auth-frontend
+git checkout auth-backend  # On the merged branch
 stak sync
 # ℹ Fetching from remote
+# ℹ Syncing 1 stack branch(es)
+# ℹ Updating base branch main from remote
+# ℹ Checking for merged branches
 # ℹ PR #1 for branch auth-backend is merged, cleaning up
 # ℹ Updating auth-frontend parent: auth-backend → main
 # ℹ Updated PR #2 base to main
 # ℹ Switching to main
 # ℹ Deleting local branch auth-backend
 # ✓ Deleted branch auth-backend
+# ℹ Branch auth-backend was deleted, finding alternative
+# ℹ Moving to auth-frontend
 # ℹ Syncing branch auth-frontend
 # ℹ Rebasing auth-frontend onto origin/main
 # ✓ Synced auth-frontend
+# ✓ Sync completed successfully
+# (Now on auth-frontend branch automatically)
 ```
 
 ### Submitting a Stack
