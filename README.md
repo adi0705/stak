@@ -103,6 +103,12 @@ stak list
 
 Sync the current branch and its children with remote changes. Rebases current branch onto its parent and recursively syncs all child branches.
 
+**Automatic Cleanup:** If a branch's PR has been merged on GitHub, `stak sync` will automatically:
+- Delete the local branch
+- Remove the metadata
+- Update child branches to point to the new parent
+- Update child PR bases on GitHub
+
 ```bash
 stak sync
 stak sync --current-only  # Skip syncing children
@@ -197,6 +203,24 @@ stak modify
 git checkout auth-backend
 stak sync
 # Rebases auth-backend onto main and auth-frontend onto auth-backend
+```
+
+### Automatic Cleanup After Merge
+
+```bash
+# After manually merging PR #1 on GitHub (auth-backend → main)
+git checkout auth-frontend
+stak sync
+# ℹ Fetching from remote
+# ℹ PR #1 for branch auth-backend is merged, cleaning up
+# ℹ Updating auth-frontend parent: auth-backend → main
+# ℹ Updated PR #2 base to main
+# ℹ Switching to main
+# ℹ Deleting local branch auth-backend
+# ✓ Deleted branch auth-backend
+# ℹ Syncing branch auth-frontend
+# ℹ Rebasing auth-frontend onto origin/main
+# ✓ Synced auth-frontend
 ```
 
 ### Submitting a Stack
@@ -294,6 +318,7 @@ stacking/
 ## Tips
 
 - Use `stak list` frequently to visualize your stack
+- Run `stak sync` after merging PRs on GitHub to automatically clean up merged branches
 - Always sync before making new changes: `stak sync`
 - Use `--draft` flag when creating WIP PRs
 - Use `stak modify --amend` for quick fixes

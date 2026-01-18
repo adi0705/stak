@@ -145,6 +145,11 @@ func GetDescendants(branch string) ([]string, error) {
 	return descendants, nil
 }
 
+// GetAllStackBranches returns all branches that have stack metadata
+func GetAllStackBranches() ([]string, error) {
+	return git.GetAllStackBranches()
+}
+
 // HasStackMetadata checks if a branch has stack metadata
 func HasStackMetadata(branch string) (bool, error) {
 	parent, err := git.GetBranchParent(branch)

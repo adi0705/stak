@@ -131,3 +131,24 @@ func GetRemoteURL() (string, error) {
 	}
 	return strings.TrimSpace(string(output)), nil
 }
+
+// RemoteBranchExists checks if a branch exists on remote
+func RemoteBranchExists(branch string) (bool, error) {
+	cmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check remote branch: %w", err)
+	}
+	return len(strings.TrimSpace(string(output))) > 0, nil
+}
+
+// ResetToRemote resets the current branch to match its remote counterpart
+func ResetToRemote(branch string) error {
+	remoteBranch := fmt.Sprintf("origin/%s", branch)
+	cmd := exec.Command("git", "reset", "--hard", remoteBranch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to reset to %s: %s", remoteBranch, string(output))
+	}
+	return nil
+}

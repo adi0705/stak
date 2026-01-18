@@ -19,14 +19,26 @@ type PRStatus struct {
 
 // CreatePR creates a pull request and returns the PR number
 func CreatePR(base, head, title, body string, draft bool) (int, error) {
-	args := []string{"pr", "create", "--base", base, "--head", head, "--title", title}
+	args := []string{"pr", "create", "--base", base, "--head", head}
 
-	// If body is empty, use --fill-first to auto-generate from first commit
-	// Otherwise gh pr create fails in non-interactive mode
-	if body != "" {
-		args = append(args, "--body", body)
-	} else {
+	// Handle title and body:
+	// - If both empty: use --fill-first to auto-generate both from first commit
+	// - If title provided: use it with --title
+	// - If body provided: use it with --body
+	if title == "" && body == "" {
+		// Auto-generate both title and body from first commit
 		args = append(args, "--fill-first")
+	} else {
+		if title != "" {
+			args = append(args, "--title", title)
+		}
+		if body != "" {
+			args = append(args, "--body", body)
+		}
+		// If only title provided, still need body for non-interactive mode
+		if title != "" && body == "" {
+			args = append(args, "--body", "")
+		}
 	}
 
 	if draft {
