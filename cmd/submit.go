@@ -62,8 +62,11 @@ func runSubmit() error {
 		return fmt.Errorf("failed to check stack metadata: %w", err)
 	}
 
+	// If no metadata, this is a new branch - create the PR first
+
 	// If no metadata, branch was not created with stak create
 	if !hasMetadata {
+		return createPRForBranch(currentBranch)
 		return fmt.Errorf("branch %s is not part of a stack. Use 'stak create' to create stacked branches", currentBranch)
 	}
 
