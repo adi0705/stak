@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
+	"stacking/internal/github"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
@@ -77,6 +78,17 @@ func runSync() error {
 		return fmt.Errorf("failed to fetch: %w", err)
 	}
 
+	// Check if current branch's PR is merged and clean up if needed
+	merged, err := checkAndCleanupMergedBranch(currentBranch)
+	if err != nil {
+		return err
+	}
+	if merged {
+		// Branch was deleted, we're done
+		ui.Success("Sync completed successfully")
+		return nil
+	}
+
 	// Sync current branch
 	if err := syncBranch(currentBranch); err != nil {
 		return err
@@ -143,6 +155,16 @@ func syncBranch(branch string) error {
 }
 
 func syncBranchRecursive(branch string) error {
+	// Check if this branch's PR is merged and clean up if needed
+	merged, err := checkAndCleanupMergedBranch(branch)
+	if err != nil {
+		return err
+	}
+	if merged {
+		// Branch was deleted, skip syncing it
+		return nil
+	}
+
 	// Sync this branch
 	if err := syncBranch(branch); err != nil {
 		return err
@@ -231,4 +253,94 @@ func continueSyncAfterConflict() error {
 
 	ui.Success("Sync completed successfully")
 	return nil
+}
+
+// checkAndCleanupMergedBranch checks if a branch's PR is merged on GitHub
+// and cleans up the local branch and metadata if so
+func checkAndCleanupMergedBranch(branch string) (bool, error) {
+	// Get branch metadata
+	metadata, err := stack.ReadBranchMetadata(branch)
+	if err != nil {
+		return false, fmt.Errorf("failed to read metadata for %s: %w", branch, err)
+	}
+
+	// If no PR exists, nothing to check
+	if metadata.PRNumber == 0 {
+		return false, nil
+	}
+
+	// Check PR status on GitHub
+	status, err := github.GetPRStatus(metadata.PRNumber)
+	if err != nil {
+		// If we can't get PR status, don't fail - just skip cleanup
+		ui.Warning(fmt.Sprintf("Could not check PR status for %s: %v", branch, err))
+		return false, nil
+	}
+
+	// If PR is not merged, nothing to clean up
+	if !status.IsMerged() {
+		return false, nil
+	}
+
+	// PR is merged, clean up the branch
+	ui.Info(fmt.Sprintf("PR #%d for branch %s is merged, cleaning up", metadata.PRNumber, branch))
+
+	// Get parent before deleting metadata
+	parentBranch := metadata.Parent
+
+	// Get children to update their parent
+	children, err := stack.GetChildren(branch)
+	if err != nil {
+		return false, fmt.Errorf("failed to get children of %s: %w", branch, err)
+	}
+
+	// Update each child's parent to point to this branch's parent
+	for _, child := range children {
+		childMetadata, err := stack.ReadBranchMetadata(child)
+		if err != nil {
+			ui.Warning(fmt.Sprintf("Could not read metadata for child %s: %v", child, err))
+			continue
+		}
+
+		ui.Info(fmt.Sprintf("Updating %s parent: %s → %s", child, branch, parentBranch))
+		if err := stack.WriteBranchMetadata(child, parentBranch, childMetadata.PRNumber); err != nil {
+			ui.Warning(fmt.Sprintf("Could not update metadata for %s: %v", child, err))
+		}
+
+		// Update PR base on GitHub if PR exists
+		if childMetadata.PRNumber > 0 {
+			if err := github.UpdatePRBase(childMetadata.PRNumber, parentBranch); err != nil {
+				ui.Warning(fmt.Sprintf("Could not update PR #%d base: %v", childMetadata.PRNumber, err))
+			} else {
+				ui.Info(fmt.Sprintf("Updated PR #%d base to %s", childMetadata.PRNumber, parentBranch))
+			}
+		}
+	}
+
+	// Get current branch so we can switch away if needed
+	currentBranch, _ := git.GetCurrentBranch()
+	if currentBranch == branch {
+		// Switch to parent branch first
+		if parentBranch != "" {
+			ui.Info(fmt.Sprintf("Switching to %s", parentBranch))
+			if err := git.CheckoutBranch(parentBranch); err != nil {
+				return false, fmt.Errorf("failed to checkout %s: %w", parentBranch, err)
+			}
+		}
+	}
+
+	// Delete local branch
+	ui.Info(fmt.Sprintf("Deleting local branch %s", branch))
+	if err := git.DeleteBranch(branch, false); err != nil {
+		ui.Warning(fmt.Sprintf("Could not delete branch %s: %v", branch, err))
+	} else {
+		ui.Success(fmt.Sprintf("Deleted branch %s", branch))
+	}
+
+	// Delete metadata
+	if err := stack.DeleteBranchMetadata(branch); err != nil {
+		ui.Warning(fmt.Sprintf("Could not delete metadata for %s: %v", branch, err))
+	}
+
+	return true, nil
 }
