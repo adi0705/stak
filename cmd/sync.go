@@ -69,6 +69,18 @@ func runSync() error {
 		return fmt.Errorf("failed to fetch: %w", err)
 	}
 
+	// Find the base branch (the root of the stack - usually main)
+	baseBranch, err := findBaseBranch(currentBranch)
+	if err != nil {
+		ui.Warning(fmt.Sprintf("Could not find base branch: %v", err))
+	} else if baseBranch != "" {
+		// Update base branch (main) from remote first
+		ui.Info(fmt.Sprintf("Updating base branch %s from remote", baseBranch))
+		if err := updateLocalBranchFromRemote(baseBranch); err != nil {
+			ui.Warning(fmt.Sprintf("Could not update %s from remote: %v", baseBranch, err))
+		}
+	}
+
 	// First, check and clean up all merged branches in the stack
 	// This ensures we don't try to rebase onto a merged branch
 	if err := cleanupMergedBranchesInStack(currentBranch); err != nil {
@@ -409,6 +421,50 @@ func continueSyncAfterConflict() error {
 	ui.Success("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 	return nil
+}
+
+// findBaseBranch finds the root branch of the stack (the one with no parent or non-stack parent)
+func findBaseBranch(branch string) (string, error) {
+	// Walk up the stack to find the base
+	current := branch
+	for {
+		// Check if this branch has stack metadata
+		hasMetadata, err := stack.HasStackMetadata(current)
+		if err != nil {
+			return "", err
+		}
+
+		if !hasMetadata {
+			// This branch is not in the stack, so the previous one was the base
+			// But we want to return this branch as it's likely main
+			return current, nil
+		}
+
+		// Get parent
+		parent, err := stack.GetParent(current)
+		if err != nil {
+			return "", err
+		}
+
+		if parent == "" {
+			// No parent, this is the base
+			return current, nil
+		}
+
+		// Check if parent has stack metadata
+		parentHasMetadata, err := stack.HasStackMetadata(parent)
+		if err != nil {
+			return "", err
+		}
+
+		if !parentHasMetadata {
+			// Parent is not in stack (likely main), return it as base
+			return parent, nil
+		}
+
+		// Move up to parent
+		current = parent
+	}
 }
 
 // updateLocalBranchFromRemote updates a local branch to match its remote counterpart

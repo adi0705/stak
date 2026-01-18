@@ -105,10 +105,11 @@ Sync the current branch and its children with remote changes. Pulls latest chang
 
 **What it does:**
 1. **Fetches from remote** - gets all latest changes
-2. **Updates local parent branches** - pulls latest changes from remote for all parent branches
-3. **Rebases current branch** onto its parent
-4. **Recursively syncs children** - repeats for all dependent branches
-5. **Automatic cleanup** - if any branch's PR has been merged on GitHub:
+2. **Updates base branch (main)** - pulls latest changes from main/master first
+3. **Updates local parent branches** - pulls latest changes from remote for all parent branches
+4. **Rebases current branch** onto its parent
+5. **Recursively syncs children** - repeats for all dependent branches
+6. **Automatic cleanup** - if any branch's PR has been merged on GitHub:
    - Deletes the local branch
    - Removes the metadata
    - Updates child branches to point to the new parent
@@ -223,11 +224,14 @@ stak submit
 
 ```bash
 # After someone pushes changes to main on GitHub
+# Stack: main → auth-backend → auth-frontend
 git checkout auth-backend
 stak sync
 # ℹ Fetching from remote
+# ℹ Updating base branch main from remote           ← Pulls latest main!
 # ℹ Updating local main to match origin/main
 # ℹ Syncing branch auth-backend
+# ℹ Updating local main to match origin/main
 # ℹ Rebasing auth-backend onto origin/main
 # ✓ Synced auth-backend
 # ℹ Syncing 1 child branch(es)
@@ -235,6 +239,8 @@ stak sync
 # ℹ Syncing branch auth-frontend
 # ℹ Rebasing auth-frontend onto origin/auth-backend
 # ✓ Synced auth-frontend
+# ℹ Updating stack comments on GitHub
+# ✓ Sync completed successfully
 ```
 
 ### Automatic Cleanup After Merge
