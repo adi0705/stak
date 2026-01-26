@@ -102,9 +102,9 @@ func displayBranchDetailed(branch *models.Branch, prefix string, currentBranch s
 	if branch.PRNumber > 0 {
 		details, err := github.GetPRDetails(branch.PRNumber)
 		if err != nil {
-			// If we can't get details, just show basic info
+			// If we can't get details, show error
 			detailPrefix := getDetailPrefix(prefix, isLast, false)
-			fmt.Printf("%s  PR #%d (error fetching details)\n", detailPrefix, branch.PRNumber)
+			fmt.Printf("%s  PR #%d (error: %v)\n", detailPrefix, branch.PRNumber, err)
 		} else {
 			displayPRDetails(details, prefix, isLast)
 		}

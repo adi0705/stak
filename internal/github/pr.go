@@ -324,23 +324,27 @@ type PRDetails struct {
 		TotalCount int `json:"totalCount"`
 	} `json:"commits"`
 	StatusCheckRollup []struct {
+		TypeName   string `json:"__typename"`
 		State      string `json:"state"`
+		Status     string `json:"status"`
 		Conclusion string `json:"conclusion"`
 	} `json:"statusCheckRollup"`
 }
 
 // GetPRDetails retrieves detailed information about a PR
 func GetPRDetails(prNumber int) (*PRDetails, error) {
+	// Query with --jq to get commit count instead of full commit array
 	cmd := exec.Command("gh", "pr", "view", strconv.Itoa(prNumber), "--json",
-		"number,title,state,reviewDecision,isDraft,baseRefName,headRefName,commits,statusCheckRollup")
-	output, err := cmd.Output()
+		"number,title,state,reviewDecision,isDraft,baseRefName,headRefName,commits,statusCheckRollup",
+		"--jq", "{number, title, state, reviewDecision, isDraft, baseRefName, headRefName, commits: {totalCount: (.commits | length)}, statusCheckRollup}")
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get PR details for #%d: %w", prNumber, err)
+		return nil, fmt.Errorf("failed to get PR details for #%d: %w (output: %s)", prNumber, err, string(output))
 	}
 
 	var details PRDetails
 	if err := json.Unmarshal(output, &details); err != nil {
-		return nil, fmt.Errorf("failed to parse PR details: %w", err)
+		return nil, fmt.Errorf("failed to parse PR details for #%d: %w (json: %s)", prNumber, err, string(output))
 	}
 
 	return &details, nil
@@ -357,17 +361,43 @@ func (d *PRDetails) GetCIStatus() string {
 	anyPending := false
 
 	for _, check := range d.StatusCheckRollup {
-		switch check.State {
-		case "SUCCESS":
-			continue
-		case "FAILURE", "ERROR":
-			anyFailed = true
-			allPassed = false
-		case "PENDING", "IN_PROGRESS":
-			anyPending = true
-			allPassed = false
-		default:
-			allPassed = false
+		// Check conclusion first (for completed checks)
+		if check.Conclusion != "" {
+			switch check.Conclusion {
+			case "SUCCESS":
+				continue
+			case "FAILURE", "ERROR", "CANCELLED", "TIMED_OUT":
+				anyFailed = true
+				allPassed = false
+			default:
+				allPassed = false
+			}
+		} else if check.Status != "" {
+			// Check status (for in-progress checks)
+			switch check.Status {
+			case "COMPLETED":
+				// Should have conclusion, but handle edge case
+				continue
+			case "IN_PROGRESS", "QUEUED", "PENDING":
+				anyPending = true
+				allPassed = false
+			default:
+				allPassed = false
+			}
+		} else {
+			// Fallback to State field for older API responses
+			switch check.State {
+			case "SUCCESS":
+				continue
+			case "FAILURE", "ERROR":
+				anyFailed = true
+				allPassed = false
+			case "PENDING", "IN_PROGRESS":
+				anyPending = true
+				allPassed = false
+			default:
+				allPassed = false
+			}
 		}
 	}
 
