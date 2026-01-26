@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          RELEASE_DIR="release/$VERSION"
+          mkdir -p "$RELEASE_DIR"
+
+          # macOS (Intel)
+          GOOS=darwin GOARCH=amd64 go build -o "$RELEASE_DIR/stak-darwin-amd64" -ldflags "-X main.version=$VERSION"
+
+          # macOS (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 go build -o "$RELEASE_DIR/stak-darwin-arm64" -ldflags "-X main.version=$VERSION"
+
+          # Linux (amd64)
+          GOOS=linux GOARCH=amd64 go build -o "$RELEASE_DIR/stak-linux-amd64" -ldflags "-X main.version=$VERSION"
+
+          # Linux (arm64)
+          GOOS=linux GOARCH=arm64 go build -o "$RELEASE_DIR/stak-linux-arm64" -ldflags "-X main.version=$VERSION"
+
+          # Windows (amd64)
+          GOOS=windows GOARCH=amd64 go build -o "$RELEASE_DIR/stak-windows-amd64.exe" -ldflags "-X main.version=$VERSION"
+
+          # Generate checksums
+          cd "$RELEASE_DIR"
+          shasum -a 256 stak-* > checksums.txt
+          cd ../..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/${{ steps.version.outputs.VERSION }}/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## Installation
+
+            ### Direct Download
+
+            Download the appropriate binary for your platform:
+            - **macOS (Apple Silicon)**: `stak-darwin-arm64`
+            - **macOS (Intel)**: `stak-darwin-amd64`
+            - **Linux (amd64)**: `stak-linux-amd64`
+            - **Linux (arm64)**: `stak-linux-arm64`
+            - **Windows**: `stak-windows-amd64.exe`
+
+            Then:
+            ```bash
+            chmod +x stak-darwin-arm64  # Make executable (macOS/Linux)
+            sudo mv stak-darwin-arm64 /usr/local/bin/stak  # Move to PATH
+            ```
+
+            ### Homebrew
+
+            ```bash
+            brew tap adi0705/stak
+            brew install stak
+            ```
+
+            ## What's Changed
+
+            See the full changelog at [CHANGELOG.md](https://github.com/adi0705/stak/blob/main/CHANGELOG.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
