@@ -19,7 +19,7 @@ var (
 	modifyEditPR     bool
 	modifyTitle      string
 	modifyBody       string
-	modifyPushOnly   bool
+	modifyPush       bool
 	modifyCommit     bool
 	modifyInto       string
 )
@@ -27,9 +27,10 @@ var (
 var modifyCmd = &cobra.Command{
 	Use:     "modify",
 	Aliases: []string{"m"},
-	Short:   "Modify current branch and sync children",
-	Long: `Modify the current branch by amending commits or rebasing, then push changes
-and sync all child branches. Optionally update the PR details.`,
+	Short:   "Modify current branch (commits only, no push)",
+	Long: `Modify the current branch by creating or amending commits locally.
+By default, this command does NOT push changes - it only creates commits.
+Use --push flag if you want to push and sync children after committing.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runModify(); err != nil {
 			ui.Error(err.Error())
@@ -44,7 +45,7 @@ func init() {
 	modifyCmd.Flags().BoolVar(&modifyEditPR, "edit", false, "Edit PR title/body")
 	modifyCmd.Flags().StringVar(&modifyTitle, "title", "", "New PR title")
 	modifyCmd.Flags().StringVar(&modifyBody, "body", "", "New PR body")
-	modifyCmd.Flags().BoolVar(&modifyPushOnly, "push-only", false, "Only push changes, skip syncing children")
+	modifyCmd.Flags().BoolVarP(&modifyPush, "push", "p", false, "Push changes after committing")
 	modifyCmd.Flags().BoolVarP(&modifyCommit, "commit", "c", false, "Create a fresh commit instead of amending")
 	modifyCmd.Flags().StringVar(&modifyInto, "into", "", "Apply changes to downstack branch")
 	rootCmd.AddCommand(modifyCmd)
@@ -145,48 +146,44 @@ func runModify() error {
 		}
 	}
 
-	// If no modification flags were provided, just push and sync
-	if !modifyAmend && modifyRebaseNum == 0 && !modifyEditPR && !modifyCommit {
-		ui.Info("No modification flags provided. Pushing current changes and syncing children.")
-	}
+	// Only push if --push flag is provided
+	if modifyPush {
+		// Determine if force push is needed
+		// Force push only if we amended or rebased (which rewrites history)
+		// Fresh commits with -c don't need force push
+		needsForcePush := modifyAmend || modifyRebaseNum > 0
 
-	// Determine if force push is needed
-	// Force push only if we amended or rebased (which rewrites history)
-	// Fresh commits with -c don't need force push
-	needsForcePush := modifyAmend || modifyRebaseNum > 0
-
-	if needsForcePush {
-		ui.Info(fmt.Sprintf("Force pushing %s", currentBranch))
-	} else {
-		ui.Info(fmt.Sprintf("Pushing %s", currentBranch))
-	}
-
-	if err := git.Push(currentBranch, false, needsForcePush); err != nil {
-		return fmt.Errorf("failed to push: %w", err)
-	}
-
-	ui.Success(fmt.Sprintf("Pushed %s", currentBranch))
-
-	// Edit PR if requested
-	if modifyEditPR || modifyTitle != "" || modifyBody != "" {
-		metadata, err := stack.ReadBranchMetadata(currentBranch)
-		if err != nil {
-			return fmt.Errorf("failed to read branch metadata: %w", err)
-		}
-
-		if metadata.PRNumber == 0 {
-			ui.Warning("No PR associated with this branch")
+		if needsForcePush {
+			ui.Info(fmt.Sprintf("Force pushing %s", currentBranch))
 		} else {
-			ui.Info(fmt.Sprintf("Updating PR #%d", metadata.PRNumber))
-			if err := github.EditPR(metadata.PRNumber, modifyTitle, modifyBody); err != nil {
-				return fmt.Errorf("failed to edit PR: %w", err)
-			}
-			ui.Success(fmt.Sprintf("Updated PR #%d", metadata.PRNumber))
+			ui.Info(fmt.Sprintf("Pushing %s", currentBranch))
 		}
-	}
 
-	// Sync children unless push-only flag is set
-	if !modifyPushOnly {
+		if err := git.Push(currentBranch, false, needsForcePush); err != nil {
+			return fmt.Errorf("failed to push: %w", err)
+		}
+
+		ui.Success(fmt.Sprintf("Pushed %s", currentBranch))
+
+		// Edit PR if requested
+		if modifyEditPR || modifyTitle != "" || modifyBody != "" {
+			metadata, err := stack.ReadBranchMetadata(currentBranch)
+			if err != nil {
+				return fmt.Errorf("failed to read branch metadata: %w", err)
+			}
+
+			if metadata.PRNumber == 0 {
+				ui.Warning("No PR associated with this branch")
+			} else {
+				ui.Info(fmt.Sprintf("Updating PR #%d", metadata.PRNumber))
+				if err := github.EditPR(metadata.PRNumber, modifyTitle, modifyBody); err != nil {
+					return fmt.Errorf("failed to edit PR: %w", err)
+				}
+				ui.Success(fmt.Sprintf("Updated PR #%d", metadata.PRNumber))
+			}
+		}
+
+		// Sync children after pushing
 		children, err := stack.GetChildren(currentBranch)
 		if err != nil {
 			return fmt.Errorf("failed to get children: %w", err)
@@ -212,6 +209,10 @@ func runModify() error {
 				return fmt.Errorf("failed to return to branch %s: %w", currentBranch, err)
 			}
 		}
+	} else {
+		// Not pushing - just inform the user
+		ui.Success("Commits created locally")
+		ui.Info("Use 'stak modify --push' or 'git push' to push changes")
 	}
 
 	ui.Success("Modify completed successfully")

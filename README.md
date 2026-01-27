@@ -285,7 +285,7 @@ stak sync --continue      # Continue after resolving conflicts
 
 ### `stak modify` (alias: `m`)
 
-Modify the current branch and sync all children.
+Modify the current branch by creating or amending commits **locally only** (does not push by default).
 
 **Interactive Mode:** When run without flags and no staged changes exist, shows an interactive menu:
 - Commit all file changes (--all)
@@ -295,25 +295,28 @@ Modify the current branch and sync all children.
 
 ```bash
 stak modify                # Interactive menu (if no staged changes)
-stak modify                # Push changes and sync children (if changes staged)
-stak modify --amend        # Amend last commit
-stak modify -c             # Create fresh commit (not amend)
-stak modify -cam "Update"  # Commit all with message
+stak modify                # Commit staged changes (does NOT push)
+stak modify --amend        # Amend last commit (local only)
+stak modify -c             # Create fresh commit (local only)
+stak modify -cam "Update"  # Commit all with message (local only)
+stak modify --push         # Commit AND push with child sync
+stak modify -p             # Same as --push (shorthand)
 stak modify --rebase 3     # Interactive rebase last 3 commits
-stak modify --edit --title "New title"  # Update PR details
-stak modify --push-only    # Only push, skip syncing children
+stak modify --edit --title "New title"  # Update PR details (requires push)
 stak modify --into parent  # Apply changes to parent branch
 ```
 
 **Flags:**
 - `--amend`: Amend the last commit
 - `-c, --commit`: Create a fresh commit instead of amending
+- `-p, --push`: Push changes after committing and sync children
 - `--rebase N`: Interactive rebase last N commits
-- `--edit`: Edit PR title/body
+- `--edit`: Edit PR title/body (only works with --push)
 - `--title`: New PR title
 - `--body`: New PR body
-- `--push-only`: Only push changes, skip syncing children
 - `--into <branch>`: Apply changes to downstack (ancestor) branch
+
+**Note:** By default, `stak modify` only creates commits locally. Use `--push` to push changes and sync children, or use `git push` manually.
 
 ### `stak submit` (alias: `s`)
 
