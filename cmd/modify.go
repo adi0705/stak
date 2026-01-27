@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
@@ -106,6 +107,23 @@ func runModify() error {
 			case "Abort this operation":
 				ui.Info("Operation aborted")
 				return nil
+			}
+		} else {
+			// Has staged changes but no explicit flags
+			// Check if there are commits on this branch - if yes, amend by default
+			hasCommits, err := branchHasCommits(currentBranch)
+			if err != nil {
+				return fmt.Errorf("failed to check for commits: %w", err)
+			}
+
+			if hasCommits {
+				// Auto-amend to existing commit
+				ui.Info("Amending last commit (use -c to create new commit instead)")
+				modifyAmend = true
+			} else {
+				// No commits yet, create first commit
+				ui.Info("Creating first commit on branch")
+				modifyCommit = true
 			}
 		}
 	}
@@ -384,4 +402,34 @@ func isAncestorBranch(ancestor, descendant string) (bool, error) {
 		return false, fmt.Errorf("failed to check ancestry: %w", err)
 	}
 	return true, nil
+}
+
+// branchHasCommits checks if the current branch has any commits beyond its parent
+func branchHasCommits(branch string) (bool, error) {
+	// Get parent branch
+	metadata, err := stack.ReadBranchMetadata(branch)
+	if err != nil {
+		return false, err
+	}
+
+	if metadata.Parent == "" {
+		// No parent, check if branch has any commits at all
+		cmd := exec.Command("git", "rev-list", "--count", "HEAD")
+		output, err := cmd.Output()
+		if err != nil {
+			return false, fmt.Errorf("failed to count commits: %w", err)
+		}
+		count := strings.TrimSpace(string(output))
+		return count != "0", nil
+	}
+
+	// Check if there are commits between parent and current branch
+	cmd := exec.Command("git", "rev-list", "--count", fmt.Sprintf("%s..%s", metadata.Parent, branch))
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to count commits: %w", err)
+	}
+
+	count := strings.TrimSpace(string(output))
+	return count != "0", nil
 }

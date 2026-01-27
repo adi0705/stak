@@ -287,6 +287,11 @@ stak sync --continue      # Continue after resolving conflicts
 
 Modify the current branch by creating or amending commits **locally only** (does not push by default).
 
+**Smart Commit Behavior:**
+- If branch has commits: **automatically amends** the last commit
+- If branch has no commits: creates a new commit
+- Use `-c` flag to force creating a new commit instead of amending
+
 **Interactive Mode:** When run without flags and no staged changes exist, shows an interactive menu:
 - Commit all file changes (--all)
 - Select changes to commit (--patch)
@@ -294,11 +299,17 @@ Modify the current branch by creating or amending commits **locally only** (does
 - Abort this operation
 
 ```bash
-stak modify                # Interactive menu (if no staged changes)
-stak modify                # Commit staged changes (does NOT push)
-stak modify --amend        # Amend last commit (local only)
-stak modify -c             # Create fresh commit (local only)
-stak modify -cam "Update"  # Commit all with message (local only)
+# With staged changes:
+stak modify                # Amends last commit (if commits exist)
+stak modify                # Creates first commit (if no commits)
+stak modify -c             # Force create new commit (don't amend)
+
+# Interactive mode (no staged changes):
+stak modify                # Shows menu to stage and commit
+
+# Other options:
+stak modify --amend        # Explicitly amend last commit
+stak modify -cam "Update"  # Commit all with message
 stak modify --push         # Commit AND push with child sync
 stak modify -p             # Same as --push (shorthand)
 stak modify --rebase 3     # Interactive rebase last 3 commits
