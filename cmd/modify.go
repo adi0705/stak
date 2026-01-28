@@ -142,8 +142,8 @@ func runModify() error {
 
 	// Handle amend
 	if modifyAmend {
-		ui.Info("Opening editor to amend last commit")
-		cmd := exec.Command("git", "commit", "--amend")
+		ui.Info("Amending last commit")
+		cmd := exec.Command("git", "commit", "--amend", "--no-edit")
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
