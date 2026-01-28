@@ -259,13 +259,38 @@ func showModifyMenu() (string, error) {
 
 // commitAllChanges commits all changes with git commit --all
 func commitAllChanges() error {
-	ui.Info("Committing all changes")
-	cmd := exec.Command("git", "commit", "--all")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to commit all changes: %w", err)
+	// Get current branch to check if it has commits
+	currentBranch, err := git.GetCurrentBranch()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	// Check if branch has commits
+	hasCommits, err := branchHasCommits(currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to check for commits: %w", err)
+	}
+
+	if hasCommits {
+		// Amend existing commit
+		ui.Info("Amending last commit with all changes")
+		cmd := exec.Command("git", "commit", "--all", "--amend", "--no-edit")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to amend commit: %w", err)
+		}
+	} else {
+		// Create first commit
+		ui.Info("Creating first commit with all changes")
+		cmd := exec.Command("git", "commit", "--all")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to commit all changes: %w", err)
+		}
 	}
 	return nil
 }
@@ -283,8 +308,30 @@ func commitPatchChanges() error {
 		return fmt.Errorf("failed to select patches: %w", err)
 	}
 
+	// Get current branch to check if it has commits
+	currentBranch, err := git.GetCurrentBranch()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	// Check if branch has commits
+	hasCommits, err := branchHasCommits(currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to check for commits: %w", err)
+	}
+
 	// Then commit the staged changes
-	commitCmd := exec.Command("git", "commit")
+	var commitCmd *exec.Cmd
+	if hasCommits {
+		// Amend existing commit
+		ui.Info("Amending last commit with selected changes")
+		commitCmd = exec.Command("git", "commit", "--amend", "--no-edit")
+	} else {
+		// Create first commit
+		ui.Info("Creating first commit with selected changes")
+		commitCmd = exec.Command("git", "commit")
+	}
+
 	commitCmd.Stdin = os.Stdin
 	commitCmd.Stdout = os.Stdout
 	commitCmd.Stderr = os.Stderr
