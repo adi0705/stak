@@ -260,9 +260,9 @@ func submitBranch(branch string) error {
 		}
 	}
 
-	// Push latest changes
-	ui.Info(fmt.Sprintf("Pushing %s to origin", branch))
-	if err := git.Push(branch, false, false); err != nil {
+	// Push latest changes (force push for existing PRs since commits may have been amended)
+	ui.Info(fmt.Sprintf("Pushing %s to origin (force push)", branch))
+	if err := git.Push(branch, false, true); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
 

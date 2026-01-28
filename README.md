@@ -615,6 +615,44 @@ stak unfreeze feature-a     # Unfreeze specific branch
 - Removes frozen marker from branch
 - Allows stack operations to modify the branch again
 
+## Common Workflows
+
+### Making Changes to an Existing PR
+
+After you've submitted a PR, you can update it with new changes:
+
+```bash
+# Make changes to your code
+git add .
+stak modify              # Amends the commit (no push)
+stak submit              # Force pushes and updates PR
+
+# OR do it in one step:
+git add .
+stak modify --push       # Amends and pushes in one command
+```
+
+The PR will be updated with your new changes in the same commit (keeps history clean).
+
+### Creating Multiple Commits in One Branch
+
+If you want separate commits (not common in stacked PRs):
+
+```bash
+# First commit
+git add .
+stak modify              # Creates/amends first commit
+
+# Second commit (use -c flag)
+git add .
+stak modify -c           # Creates NEW commit
+stak submit              # Pushes both commits
+
+# Later, squash if needed:
+stak squash              # Combines all commits into one
+stak submit              # Updates PR with single commit
+```
+
 ## Workflow Example
 
 ### Creating a Stack
