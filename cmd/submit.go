@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -123,18 +123,13 @@ func createPRForBranch(branchName string) error {
 		return fmt.Errorf("no commits on branch %s. Make some commits first", branchName)
 	}
 
-	// Prompt for PR title
-	fmt.Print("Enter PR title: ")
-	reader := bufio.NewReader(os.Stdin)
-	prTitle, err := reader.ReadString('\n')
+	// Get the last commit message as PR title
+	prTitle, err := getLastCommitMessage()
 	if err != nil {
-		return fmt.Errorf("failed to read PR title: %w", err)
+		return fmt.Errorf("failed to get commit message: %w", err)
 	}
-	prTitle = strings.TrimSpace(prTitle)
 
-	if prTitle == "" {
-		return fmt.Errorf("PR title cannot be empty")
-	}
+	ui.Info(fmt.Sprintf("Using commit message as PR title: %s", prTitle))
 
 	// Push branch to remote
 	ui.Info(fmt.Sprintf("Pushing branch %s to origin", branchName))
@@ -219,6 +214,16 @@ func updateStackComments(branchName string) error {
 	}
 
 	return nil
+}
+
+// getLastCommitMessage returns the subject line of the last commit
+func getLastCommitMessage() (string, error) {
+	cmd := exec.Command("git", "log", "-1", "--pretty=%s")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit message: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func submitBranch(branch string) error {

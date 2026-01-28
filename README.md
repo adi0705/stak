@@ -97,10 +97,11 @@ stak init
 # On main branch - create new branch with stak
 stak create feature-a
 
-# Make commits
-git add . && git commit -m "Add feature A"
+# Make changes and commit
+git add .
+git commit -m "Add feature A"
 
-# Submit PR
+# Submit PR (uses "Add feature A" as PR title automatically)
 stak submit
 ```
 
@@ -109,10 +110,11 @@ stak submit
 # Create second branch stacked on feature-a
 stak create feature-b
 
-# Make more commits
-git add . && git commit -m "Add feature B"
+# Make changes and commit
+git add .
+git commit -m "Add feature B"
 
-# Submit PR (will be based on feature-a)
+# Submit PR (uses "Add feature B" as PR title, based on feature-a)
 stak submit
 ```
 
@@ -331,7 +333,7 @@ stak modify --into parent  # Apply changes to parent branch
 
 ### `stak submit` (alias: `s`)
 
-Create or update pull requests for branches in the stack. **Note:** This command does NOT merge PRs - use `stak merge` for that.
+Create or update pull requests for branches in the stack. Automatically uses your commit message as the PR title. **Note:** This command does NOT merge PRs - use `stak merge` for that.
 
 ```bash
 stak submit                # Create/update PR for current branch
@@ -339,6 +341,11 @@ stak submit --stack        # Create/update PRs for entire stack
 stak submit --update-only  # Only update existing PRs, don't create new
 stak submit --draft        # Create PRs as drafts
 ```
+
+**Behavior:**
+- PR title: Automatically uses last commit message (subject line)
+- PR body: Auto-filled from all commit messages in the branch
+- For existing PRs: Force pushes to update (safe after amending commits)
 
 **Flags:**
 - `-s, --stack`: Submit entire stack from current branch
@@ -662,18 +669,18 @@ stak submit              # Updates PR with single commit
 git checkout main
 
 # Create first branch
-git checkout -b auth-backend
+stak create auth-backend
 # Make changes
 git add . && git commit -m "Add authentication backend"
-stak create --title "Add authentication backend"
-# PR #1 created: auth-backend → main
+stak submit
+# PR #1 created: auth-backend → main (title: "Add authentication backend")
 
 # Create second branch stacked on first
-git checkout -b auth-frontend
+stak create auth-frontend
 # Make changes
 git add . && git commit -m "Add authentication UI"
-stak create --title "Add authentication UI"
-# PR #2 created: auth-frontend → auth-backend
+stak submit
+# PR #2 created: auth-frontend → auth-backend (title: "Add authentication UI")
 
 # Visualize
 stak list
