@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
 	"stacking/internal/github"
+	"stacking/internal/history"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
@@ -103,6 +104,14 @@ func runCreate(branchName string) error {
 	}
 
 	ui.Success(fmt.Sprintf("Created and checked out branch %s", branchName))
+
+	// Log operation for undo functionality
+	metadata := map[string]interface{}{
+		"parent": parentBranch,
+	}
+	if err := history.LogOperation("create", branchName, fmt.Sprintf("Created branch %s from %s", branchName, parentBranch), metadata); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
+	}
 
 	// Handle staging and committing if flags provided
 	if createAll || createMessage != "" {

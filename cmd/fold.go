@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
 	"stacking/internal/github"
+	"stacking/internal/history"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
@@ -242,6 +243,17 @@ func runFold(branchName string) error {
 	// Delete metadata
 	if err := stack.DeleteBranchMetadata(branchName); err != nil {
 		ui.Warning(fmt.Sprintf("Could not delete metadata: %v", err))
+	}
+
+	// Log operation
+	logMetadata := map[string]interface{}{
+		"folded_branch": branchName,
+		"into_parent":   parent,
+		"pr_number":     metadata.PRNumber,
+		"child_count":   len(children),
+	}
+	if err := history.LogOperation("fold", branchName, fmt.Sprintf("Folded %s into %s", branchName, parent), logMetadata); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
 	}
 
 	ui.Success(fmt.Sprintf("Folded %s into %s", branchName, parent))

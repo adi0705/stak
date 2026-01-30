@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
 	"stacking/internal/github"
+	"stacking/internal/history"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
@@ -176,6 +177,15 @@ func runMove(branchName string) error {
 		if err := git.CheckoutBranch(branchName); err != nil {
 			return fmt.Errorf("failed to return to branch: %w", err)
 		}
+	}
+
+	// Log operation
+	logMetadata := map[string]interface{}{
+		"old_parent": currentParent,
+		"new_parent": newParent,
+	}
+	if err := history.LogOperation("move", branchName, fmt.Sprintf("Moved from %s to %s", currentParent, newParent), logMetadata); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
 	}
 
 	ui.Success(fmt.Sprintf("Moved %s from %s to %s", branchName, currentParent, newParent))

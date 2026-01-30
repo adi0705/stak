@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
 	"stacking/internal/github"
+	"stacking/internal/history"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
@@ -166,6 +167,15 @@ func createPRForBranch(branchName string) error {
 		// Don't fail the whole operation if comments fail
 	}
 
+	// Log operation
+	logMetadata := map[string]interface{}{
+		"pr_number": prNumber,
+		"parent":    parentBranch,
+	}
+	if err := history.LogOperation("submit", branchName, fmt.Sprintf("Created PR #%d", prNumber), logMetadata); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
+	}
+
 	return nil
 }
 
@@ -272,6 +282,15 @@ func submitBranch(branch string) error {
 	}
 
 	ui.Success(fmt.Sprintf("Updated PR #%d", prNumber))
+
+	// Log operation
+	logMetadata := map[string]interface{}{
+		"pr_number": prNumber,
+		"action":    "update",
+	}
+	if err := history.LogOperation("submit", branch, fmt.Sprintf("Updated PR #%d", prNumber), logMetadata); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
+	}
 
 	// Update stack comments
 	if err := updateStackComments(branch); err != nil {

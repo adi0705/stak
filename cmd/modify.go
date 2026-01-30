@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"stacking/internal/git"
 	"stacking/internal/github"
+	"stacking/internal/history"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 )
@@ -138,6 +139,14 @@ func runModify() error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
+
+		// Log operation
+		metadata := map[string]interface{}{
+			"type": "commit",
+		}
+		if err := history.LogOperation("modify", currentBranch, "Created new commit", metadata); err != nil {
+			ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
+		}
 	}
 
 	// Handle amend
@@ -150,6 +159,14 @@ func runModify() error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to amend commit: %w", err)
 		}
+
+		// Log operation
+		metadata := map[string]interface{}{
+			"type": "amend",
+		}
+		if err := history.LogOperation("modify", currentBranch, "Amended last commit", metadata); err != nil {
+			ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
+		}
 	}
 
 	// Handle interactive rebase
@@ -161,6 +178,15 @@ func runModify() error {
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to rebase: %w", err)
+		}
+
+		// Log operation
+		metadata := map[string]interface{}{
+			"type":         "rebase",
+			"commit_count": modifyRebaseNum,
+		}
+		if err := history.LogOperation("modify", currentBranch, fmt.Sprintf("Rebased last %d commits", modifyRebaseNum), metadata); err != nil {
+			ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
 		}
 	}
 
@@ -408,6 +434,16 @@ func applyToDownstack(currentBranch, targetBranch string) error {
 	}
 
 	ui.Success(fmt.Sprintf("Changes committed to %s", targetBranch))
+
+	// Log operation
+	metadata := map[string]interface{}{
+		"type":          "into",
+		"source":        currentBranch,
+		"target":        targetBranch,
+	}
+	if err := history.LogOperation("modify", currentBranch, fmt.Sprintf("Applied changes to downstack branch %s", targetBranch), metadata); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to log operation: %v", err))
+	}
 
 	// Push target branch
 	ui.Info(fmt.Sprintf("Pushing %s", targetBranch))
