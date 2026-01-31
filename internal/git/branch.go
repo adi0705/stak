@@ -238,3 +238,23 @@ func Commit(message string) error {
 	}
 	return nil
 }
+
+// RenameBranch renames a branch locally
+func RenameBranch(oldName, newName string) error {
+	cmd := exec.Command("git", "branch", "-m", oldName, newName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to rename branch %s to %s: %s", oldName, newName, string(output))
+	}
+	return nil
+}
+
+// DeleteRemoteBranch deletes a branch from the remote repository
+func DeleteRemoteBranch(branch string) error {
+	cmd := exec.Command("git", "push", "origin", "--delete", branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to delete remote branch %s: %s", branch, string(output))
+	}
+	return nil
+}
