@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"stacking/internal/git"
+	"stacking/internal/github"
 	"stacking/internal/stack"
 	"stacking/internal/ui"
 	"stacking/pkg/models"
@@ -75,6 +76,16 @@ func runRename(cmd *cobra.Command, args []string) error {
 
 	ui.Info(fmt.Sprintf("Renaming '%s' → '%s'", currentBranch, newBranchName))
 
+	// Get children BEFORE renaming (so we can update them)
+	var children []string
+	if hasMetadata {
+		var err error
+		children, err = stack.GetChildren(currentBranch)
+		if err != nil {
+			return fmt.Errorf("failed to get children: %w", err)
+		}
+	}
+
 	// 1. Rename the git branch
 	if err := git.RenameBranch(currentBranch, newBranchName); err != nil {
 		return fmt.Errorf("failed to rename branch: %w", err)
@@ -95,10 +106,6 @@ func runRename(cmd *cobra.Command, args []string) error {
 		ui.Success("✓ Updated stack metadata")
 
 		// 4. Update all children to point to new branch name
-		children, err := stack.GetChildren(currentBranch)
-		if err != nil {
-			return fmt.Errorf("failed to get children: %w", err)
-		}
 
 		if len(children) > 0 {
 			for _, child := range children {
@@ -112,6 +119,13 @@ func runRename(cmd *cobra.Command, args []string) error {
 				if err := stack.WriteBranchMetadata(child, newBranchName, childMetadata.PRNumber); err != nil {
 					ui.Warning(fmt.Sprintf("Failed to update parent for child '%s': %v", child, err))
 					continue
+				}
+
+				// Update child PR base branch on GitHub if PR exists
+				if childMetadata.PRNumber > 0 && renameUpdatePR {
+					if err := github.UpdatePRBase(childMetadata.PRNumber, newBranchName); err != nil {
+						ui.Warning(fmt.Sprintf("Failed to update PR #%d base: %v", childMetadata.PRNumber, err))
+					}
 				}
 			}
 			ui.Success(fmt.Sprintf("✓ Updated %d child branch(es)", len(children)))
