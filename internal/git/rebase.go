@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -62,9 +63,11 @@ func IsRebaseInProgress() (bool, error) {
 // ContinueRebase continues a rebase after resolving conflicts
 func ContinueRebase() error {
 	cmd := exec.Command("git", "rebase", "--continue")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to continue rebase: %s", string(output))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to continue rebase: %w", err)
 	}
 	return nil
 }
